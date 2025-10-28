@@ -205,7 +205,18 @@ class StudentRegistration(models.Model):
         ('mohali', 'Mohali'),
         ('phagwara', 'Phagwara'),
     ]
+    BRANCH_CODES = {
+        'jalandhar1': '4001',
+        'jalandhar2': '4002', 
+        'maqsudan': '4003',
+        'ludhiana': '4004',
+        'hoshiarpur': '4005',
+        'mohali': '4006',
+        'phagwara': '4007',
+    }
     
+    # Add registration number field
+    registration_number = models.CharField(max_length=20, unique=True, blank=True)
     # Branch and Basic Info
     branch = models.CharField(max_length=20, choices=CENTRE_CHOICES)
     joining_date = models.DateField()
@@ -247,6 +258,9 @@ class StudentRegistration(models.Model):
         return f"{self.student_name} - {self.course.name}"
     
     def save(self, *args, **kwargs):
+         # Auto-generate registration number if not provided
+        if not self.registration_number:
+            self.registration_number = self.generate_registration_number()
         # Auto-generate username if not provided
         if not self.username:
             base_username = self.student_name.lower().replace(' ', '')
@@ -265,3 +279,28 @@ class StudentRegistration(models.Model):
             self.password = ''.join(secrets.choice(alphabet) for i in range(8))
         
         super().save(*args, **kwargs)
+    def generate_registration_number(self):
+        """Generate unique registration number in format: TCD/BRANCH_CODE/SEQUENTIAL_NUMBER"""
+        branch_code = self.BRANCH_CODES.get(self.branch, '4000')
+        
+        # Get the last registration number for this branch
+        last_reg = StudentRegistration.objects.filter(
+            registration_number__startswith=f"TCD/{branch_code}/"
+        ).order_by('-id').first()
+        
+        if last_reg and last_reg.registration_number:
+            # Extract sequential number and increment
+            try:
+                last_number = int(last_reg.registration_number.split('/')[-1])
+                sequential_number = last_number + 1
+            except (ValueError, IndexError):
+                sequential_number = 1
+        else:
+            sequential_number = 1
+        
+        # Format with leading zeros (4 digits)
+        sequential_str = str(sequential_number).zfill(4)
+        return f"TCD/{branch_code}/{sequential_str}"
+    
+    def __str__(self):
+        return f"{self.registration_number} - {self.student_name}"

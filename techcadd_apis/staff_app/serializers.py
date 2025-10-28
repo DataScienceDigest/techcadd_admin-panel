@@ -206,6 +206,24 @@ class CourseSerializer(serializers.ModelSerializer):
         fields = ('id', 'name', 'course_type', 'course_type_name', 'software_covered', 
                  'duration_months', 'duration_months_display', 'duration_hours', 'course_fee')
 
+# class StudentRegistrationSerializer(serializers.ModelSerializer):
+#     course_type_name = serializers.CharField(source='course_type.name', read_only=True)
+#     course_name = serializers.CharField(source='course.name', read_only=True)
+#     branch_display = serializers.CharField(source='get_branch_display', read_only=True)
+#     duration_months_display = serializers.CharField(source='get_duration_months_display', read_only=True)
+#     created_by_name = serializers.CharField(source='created_by.user.get_full_name', read_only=True)
+    
+#     class Meta:
+#         model = StudentRegistration
+#         fields = (
+#             'id','registration_number', 'branch', 'branch_display', 'joining_date', 'student_name', 
+#             'father_name', 'date_of_birth', 'email', 'qualification', 'work_college',
+#             'contact_address', 'phone_no', 'whatsapp_no', 'parents_no', 'course_type',
+#             'course_type_name', 'course', 'course_name', 'software_covered',
+#             'duration_months', 'duration_months_display', 'duration_hours', 'course_fee',
+#             'username', 'password', 'created_at', 'created_by', 'created_by_name'
+#         )
+#         read_only_fields = ('registration_number','username', 'password', 'created_at', 'created_by')
 class StudentRegistrationSerializer(serializers.ModelSerializer):
     course_type_name = serializers.CharField(source='course_type.name', read_only=True)
     course_name = serializers.CharField(source='course.name', read_only=True)
@@ -216,14 +234,14 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentRegistration
         fields = (
-            'id', 'branch', 'branch_display', 'joining_date', 'student_name', 
-            'father_name', 'date_of_birth', 'email', 'qualification', 'work_college',
-            'contact_address', 'phone_no', 'whatsapp_no', 'parents_no', 'course_type',
-            'course_type_name', 'course', 'course_name', 'software_covered',
+            'id', 'registration_number', 'branch', 'branch_display', 'joining_date', 
+            'student_name', 'father_name', 'date_of_birth', 'email', 'qualification', 
+            'work_college', 'contact_address', 'phone_no', 'whatsapp_no', 'parents_no', 
+            'course_type', 'course_type_name', 'course', 'course_name', 'software_covered',
             'duration_months', 'duration_months_display', 'duration_hours', 'course_fee',
             'username', 'password', 'created_at', 'created_by', 'created_by_name'
         )
-        read_only_fields = ('username', 'password', 'created_at', 'created_by')
+        read_only_fields = ('registration_number', 'username', 'password', 'created_at', 'created_by')
 
 class CreateStudentRegistrationSerializer(serializers.ModelSerializer):
     class Meta:

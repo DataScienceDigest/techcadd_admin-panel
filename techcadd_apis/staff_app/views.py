@@ -464,6 +464,47 @@ def get_courses_by_type(request, course_type_id):
     except Course.DoesNotExist:
         return Response([])
 
+# @api_view(['POST'])
+# @permission_classes([IsAuthenticated])
+# def create_student_registration(request):
+#     """Create new student registration"""
+#     staff_profile = get_staff_profile(request.user)
+    
+#     if not staff_profile:
+#         return Response({
+#             'error': 'Access denied. Staff privileges required.'
+#         }, status=status.HTTP_403_FORBIDDEN)
+    
+#     serializer = CreateStudentRegistrationSerializer(
+#         data=request.data, 
+#         context={'request': request}
+#     )
+    
+#     if serializer.is_valid():
+#         try:
+#             registration = serializer.save()
+            
+#             # Return registration with generated credentials
+#             response_serializer = StudentRegistrationSerializer(registration)
+            
+#             return Response({
+#                 'message': 'Student registration created successfully',
+#                 'registration': response_serializer.data,
+#                 'login_credentials': {
+#                     'username': registration.username,
+#                     'password': registration.password
+#                 }
+#             }, status=status.HTTP_201_CREATED)
+            
+#         except Exception as e:
+#             return Response({
+#                 'error': f'Failed to create registration: {str(e)}'
+#             }, status=status.HTTP_400_BAD_REQUEST)
+    
+#     return Response({
+#         'error': 'Validation failed',
+#         'details': serializer.errors
+#     }, status=status.HTTP_400_BAD_REQUEST)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_student_registration(request):
@@ -484,15 +525,15 @@ def create_student_registration(request):
         try:
             registration = serializer.save()
             
-            # Return registration with generated credentials
-            response_serializer = StudentRegistrationSerializer(registration)
+            # Use special serializer that shows password ONLY for create response
+            response_serializer = CreateStudentRegistrationResponseSerializer(registration)
             
             return Response({
                 'message': 'Student registration created successfully',
                 'registration': response_serializer.data,
                 'login_credentials': {
                     'username': registration.username,
-                    'password': registration.password
+                    'password': registration.password  # Show only once
                 }
             }, status=status.HTTP_201_CREATED)
             
@@ -553,6 +594,183 @@ def get_registration_detail(request, registration_id):
         registration = StudentRegistration.objects.get(id=registration_id)
         serializer = StudentRegistrationSerializer(registration)
         return Response(serializer.data)
+    except StudentRegistration.DoesNotExist:
+        return Response({
+            'error': 'Registration not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def search_student_registrations(request):
+    """Search student registrations - SECURE (no password)"""
+    staff_profile = get_staff_profile(request.user)
+    
+    if not staff_profile:
+        return Response({
+            'error': 'Access denied. Staff privileges required.'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    search_query = request.GET.get('q')
+    if not search_query:
+        return Response({
+            'error': 'Search query (q) parameter is required'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    registrations = StudentRegistration.objects.select_related(
+        'course_type', 'course', 'created_by__user'
+    ).filter(
+        models.Q(registration_number__icontains=search_query) |
+        models.Q(student_name__icontains=search_query) |
+        models.Q(email__icontains=search_query) |
+        models.Q(phone_no__icontains=search_query) |
+        models.Q(father_name__icontains=search_query)
+    )
+    
+    # Use secure serializer (no password)
+    serializer = StudentRegistrationSerializer(registrations, many=True)
+    
+    return Response({
+        'search_query': search_query,
+        'count': registrations.count(),
+        'registrations': serializer.data
+    })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reset_student_password(request, registration_id):
+    """Staff can reset student password"""
+    # Generate new password and show it once
+    # Then student should change it immediately
+    pass
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def student_change_password(request):
+    """Student changes their own password"""
+    # Student authentication required
+    pass
+
+# new views for fee and certifications
+# staff_app/views.py - Add new views
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def update_student_fee(request):
+    registration_number = request.GET.get('registration_number')
+    if not registration_number:
+        return Response({'error': 'registration_number parameter is required'}, status=400)
+    print(' i am here for update fee----------------')
+    
+    staff_profile = get_staff_profile(request.user)
+    
+    if not staff_profile:
+        return Response({
+            'error': 'Access denied. Staff privileges required.'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        registration = StudentRegistration.objects.get(registration_number=registration_number)
+        serializer = UpdateFeeSerializer(registration, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            serializer.save()
+            
+            # Return updated registration
+            response_serializer = StudentRegistrationSerializer(registration)
+            return Response({
+                'message': 'Fee updated successfully',
+                'registration': response_serializer.data
+            })
+        
+        return Response({
+            'error': 'Validation failed',
+            'details': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+        
+    except StudentRegistration.DoesNotExist:
+        return Response({
+            'error': 'Registration not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def generate_certificate(request):
+    """Generate certificate for student if eligible"""
+    registration_number = request.GET.get('registration_number')
+    if not registration_number:
+        return Response({'error': 'registration_number parameter is required'}, status=400)
+    staff_profile = get_staff_profile(request.user)
+    
+    if not staff_profile:
+        return Response({
+            'error': 'Access denied. Staff privileges required.'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        registration = StudentRegistration.objects.get(registration_number=registration_number)
+        
+        # Check eligibility
+        if not registration.is_eligible_for_certificate():
+            return Response({
+                'error': 'Student is not eligible for certificate',
+                'requirements': {
+                    'fees_cleared': registration.paid_fee >= registration.total_course_fee,
+                    'fees_paid': float(registration.paid_fee),
+                    'total_fees': float(registration.total_course_fee),
+                    'course_completed': registration.course_completion_date and timezone.now().date() >= registration.course_completion_date,
+                    'course_completion_date': registration.course_completion_date,
+                    'current_date': timezone.now().date()
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Generate certificate
+        registration.certificate_issued = True
+        registration.certificate_issue_date = timezone.now().date()
+        registration.generate_certificate_number()
+        registration.save()
+        
+        response_serializer = StudentRegistrationSerializer(registration)
+        
+        return Response({
+            'message': 'Certificate generated successfully',
+            'certificate_number': registration.certificate_number,
+            'issue_date': registration.certificate_issue_date,
+            'registration': response_serializer.data
+        })
+        
+    except StudentRegistration.DoesNotExist:
+        return Response({
+            'error': 'Registration not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_fee_payment_history(request):
+    """Get fee payment history (you can expand this with a Payment model later)"""
+    registration_number = request.GET.get('registration_number')
+    if not registration_number:
+        return Response({'error': 'registration_number parameter is required'}, status=400)
+    staff_profile = get_staff_profile(request.user)
+    
+    if not staff_profile:
+        return Response({
+            'error': 'Access denied. Staff privileges required.'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        registration = StudentRegistration.objects.get(registration_number=registration_number)
+        
+        # For now, return basic fee info. You can create a Payment model later for detailed history
+        fee_info = {
+            'total_course_fee': float(registration.total_course_fee),
+            'paid_fee': float(registration.paid_fee),
+            'fee_balance': float(registration.fee_balance),
+            'payment_percentage': round((registration.paid_fee / registration.total_course_fee) * 100, 2),
+            'last_updated': registration.updated_at
+        }
+        
+        return Response(fee_info)
+        
     except StudentRegistration.DoesNotExist:
         return Response({
             'error': 'Registration not found'

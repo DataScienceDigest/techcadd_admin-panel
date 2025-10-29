@@ -1,12 +1,12 @@
 from django.db import models
-
-# Create your models here.
-# staff_app/models.py
+# staff_app/models.py - Add this import at the top
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from django.db import models
 from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-
+import datetime
 class StaffProfile(models.Model):
     STAFF_ROLES = [
         ('trainer', 'Trainer'),
@@ -220,8 +220,6 @@ class StudentRegistration(models.Model):
     # Branch and Basic Info
     branch = models.CharField(max_length=20, choices=CENTRE_CHOICES)
     joining_date = models.DateField()
-    
-    # Student Personal Details
     student_name = models.CharField(max_length=100)
     father_name = models.CharField(max_length=100)
     date_of_birth = models.DateField()
@@ -232,24 +230,23 @@ class StudentRegistration(models.Model):
     phone_no = models.CharField(max_length=15)
     whatsapp_no = models.CharField(max_length=15, blank=True)
     parents_no = models.CharField(max_length=15, blank=True)
-    
-    # Course Details
     course_type = models.ForeignKey(CourseType, on_delete=models.CASCADE, related_name='registrations')
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='registrations')
     software_covered = models.TextField(blank=True)  # Can override course software
     duration_months = models.CharField(max_length=20, choices=Course.DURATION_CHOICES)
     duration_hours = models.IntegerField()
-    course_fee = models.DecimalField(max_digits=10, decimal_places=2)
-    
-    # Login Credentials (auto-generated)
     username = models.CharField(max_length=50, unique=True)
     password = models.CharField(max_length=128)
-    
-    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(StaffProfile, on_delete=models.CASCADE, related_name='student_registrations')
-    
+    total_course_fee = models.DecimalField(max_digits=10, decimal_places=2)
+    paid_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    fee_balance = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    course_completion_date = models.DateField(null=True, blank=True)
+    certificate_issued = models.BooleanField(default=False)
+    certificate_issue_date = models.DateField(null=True, blank=True)
+    certificate_number = models.CharField(max_length=50, blank=True)
     class Meta:
         db_table = 'student_registrations'
         ordering = ['-created_at']
@@ -258,9 +255,14 @@ class StudentRegistration(models.Model):
         return f"{self.student_name} - {self.course.name}"
     
     def save(self, *args, **kwargs):
-         # Auto-generate registration number if not provided
         if not self.registration_number:
             self.registration_number = self.generate_registration_number()
+        self.fee_balance = self.total_course_fee - self.paid_fee
+        
+        # Calculate course completion date based on duration
+        if self.joining_date and self.duration_months:
+            self.course_completion_date = self.calculate_completion_date()
+        
         # Auto-generate username if not provided
         if not self.username:
             base_username = self.student_name.lower().replace(' ', '')
@@ -280,16 +282,12 @@ class StudentRegistration(models.Model):
         
         super().save(*args, **kwargs)
     def generate_registration_number(self):
-        """Generate unique registration number in format: TCD/BRANCH_CODE/SEQUENTIAL_NUMBER"""
         branch_code = self.BRANCH_CODES.get(self.branch, '4000')
-        
-        # Get the last registration number for this branch
         last_reg = StudentRegistration.objects.filter(
             registration_number__startswith=f"TCD/{branch_code}/"
         ).order_by('-id').first()
         
         if last_reg and last_reg.registration_number:
-            # Extract sequential number and increment
             try:
                 last_number = int(last_reg.registration_number.split('/')[-1])
                 sequential_number = last_number + 1
@@ -298,9 +296,80 @@ class StudentRegistration(models.Model):
         else:
             sequential_number = 1
         
-        # Format with leading zeros (4 digits)
         sequential_str = str(sequential_number).zfill(4)
         return f"TCD/{branch_code}/{sequential_str}"
     
     def __str__(self):
         return f"{self.registration_number} - {self.student_name}"
+
+    def calculate_completion_date(self):
+        from dateutil.relativedelta import relativedelta
+        
+        duration_map = {
+            '6_weeks': relativedelta(weeks=6),
+            '1_month': relativedelta(months=1),
+            '2_months': relativedelta(months=2),
+            '3_months': relativedelta(months=3),
+            '4_months': relativedelta(months=4),
+            '5_months': relativedelta(months=5),
+            '6_months': relativedelta(months=6),
+            '7_months': relativedelta(months=7),
+            '8_months': relativedelta(months=8),
+            '9_months': relativedelta(months=9),
+            '10_months': relativedelta(months=10),
+            '1_year': relativedelta(years=1),
+        }
+        
+        duration_delta = duration_map.get(self.duration_months, relativedelta(months=3))
+        return self.joining_date + duration_delta
+    
+    def is_eligible_for_certificate(self):
+        """Check if student is eligible for certificate"""
+        from django.utils import timezone
+        today = timezone.now().date()
+        
+        # Check if fees are fully paid
+        fees_cleared = self.paid_fee >= self.total_course_fee
+        
+        # Check if course duration is completed
+        course_completed = self.course_completion_date and today >= self.course_completion_date
+        
+        return fees_cleared and course_completed
+    
+    def generate_certificate_number(self):
+        """Generate unique certificate number"""
+        if not self.certificate_number:
+            base_number = f"CERT-{self.registration_number.replace('/', '')}"
+            self.certificate_number = base_number
+        return self.certificate_number
+    def get_days_remaining(self):
+        if not self.course_completion_date:
+            return None
+        today = datetime.datetime.now().date()
+        if today < self.joining_date:
+            total_duration = (self.course_completion_date - self.joining_date).days
+            return total_duration
+        
+        # If course is in progress
+        if today <= self.course_completion_date:
+            days_remaining = (self.course_completion_date - today).days
+            return days_remaining
+        return 0
+
+    def get_course_status(self):
+        """Get course status"""
+        from django.utils import timezone
+        today = datetime.datetime.now().date()
+        if today < self.joining_date:
+            return "not_started"
+        elif today <= self.course_completion_date:
+            return "ongoing"
+        else:
+            return "completed"
+    # In your StudentRegistration model
+    def get_total_course_days(self):
+        """Get total duration of course in days"""
+        if self.joining_date and self.course_completion_date:
+            total_days = (self.course_completion_date - self.joining_date).days
+            return total_days
+        return None

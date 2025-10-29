@@ -230,7 +230,10 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
     branch_display = serializers.CharField(source='get_branch_display', read_only=True)
     duration_months_display = serializers.CharField(source='get_duration_months_display', read_only=True)
     created_by_name = serializers.CharField(source='created_by.user.get_full_name', read_only=True)
-    
+    is_eligible_for_certificate = serializers.BooleanField(read_only=True)
+    days_remaining_to_complete = serializers.SerializerMethodField(read_only=True)
+    total_course_days = serializers.SerializerMethodField(read_only=True)  # ✅ CORRECT - Use SerializerMethodField
+    course_status = serializers.SerializerMethodField(read_only=True)
     class Meta:
         model = StudentRegistration
         fields = (
@@ -238,10 +241,26 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
             'student_name', 'father_name', 'date_of_birth', 'email', 'qualification', 
             'work_college', 'contact_address', 'phone_no', 'whatsapp_no', 'parents_no', 
             'course_type', 'course_type_name', 'course', 'course_name', 'software_covered',
-            'duration_months', 'duration_months_display', 'duration_hours', 'course_fee',
-            'username', 'password', 'created_at', 'created_by', 'created_by_name'
+            'duration_months', 'duration_months_display', 'duration_hours', 
+            'total_course_fee', 'paid_fee', 'fee_balance',  # Fee fields
+            'course_completion_date',  # Completion date
+            'days_remaining_to_complete',  # NEW: Days remaining
+            'course_status',
+            'total_course_days', 
+            'certificate_issued', 'certificate_number', 'certificate_issue_date',  # Certificate fields
+            'is_eligible_for_certificate',  # Eligibility check
+            'username', 'created_at', 'created_by', 'created_by_name'
         )
-        read_only_fields = ('registration_number', 'username', 'password', 'created_at', 'created_by')
+        read_only_fields = ('registration_number', 'username', 'created_at', 'created_by', 
+                          'fee_balance', 'course_completion_date', 'is_eligible_for_certificate',
+                          'days_remaining_to_complete')
+    def get_days_remaining_to_complete(self, obj):
+            return obj.get_days_remaining()
+    
+    def get_total_course_days(self, obj):
+            return obj.get_total_course_days()
+    def get_course_status(self, obj):
+        return obj.get_course_status()
 
 class CreateStudentRegistrationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -250,8 +269,16 @@ class CreateStudentRegistrationSerializer(serializers.ModelSerializer):
             'branch', 'joining_date', 'student_name', 'father_name', 'date_of_birth',
             'email', 'qualification', 'work_college', 'contact_address', 'phone_no',
             'whatsapp_no', 'parents_no', 'course_type', 'course', 'software_covered',
-            'duration_months', 'duration_hours', 'course_fee'
+            'duration_months', 'duration_hours', 'total_course_fee', 'paid_fee'  # Added fee fields
         )
+    
+    def validate(self, data):
+        # Ensure paid_fee doesn't exceed total_course_fee
+        if data.get('paid_fee', 0) > data.get('total_course_fee', 0):
+            raise serializers.ValidationError({
+                'paid_fee': 'Paid fee cannot exceed total course fee'
+            })
+        return data
     
     def validate_email(self, value):
         if StudentRegistration.objects.filter(email=value).exists():
@@ -279,3 +306,45 @@ class CourseOptionsSerializer(serializers.Serializer):
     duration_choices = serializers.ListField(
         child=serializers.DictField()
     )
+
+class CreateStudentRegistrationResponseSerializer(serializers.ModelSerializer):
+    """Serializer used ONLY for create response to show password once"""
+    course_type_name = serializers.CharField(source='course_type.name', read_only=True)
+    course_name = serializers.CharField(source='course.name', read_only=True)
+    branch_display = serializers.CharField(source='get_branch_display', read_only=True)
+    is_eligible_for_certificate = serializers.BooleanField(read_only=True)
+    days_remaining_to_complete = serializers.SerializerMethodField(read_only=True)
+    total_course_days = serializers.SerializerMethodField(read_only=True)  # ADD THIS
+    course_status = serializers.SerializerMethodField(read_only=True)  # ADD THIS
+    
+    
+    class Meta:
+        model = StudentRegistration
+        fields = (
+            'id', 'registration_number', 'branch', 'branch_display', 'joining_date', 
+            'student_name', 'email', 'phone_no', 'course_type_name', 'course_name',
+            'total_course_fee', 'paid_fee', 'fee_balance',  # Fee info
+            'course_completion_date',  # Completion date
+            'days_remaining_to_complete',  # NEW: Days remaining
+            'is_eligible_for_certificate',  # Eligibility
+            'total_course_days',  # ADD THIS
+            'course_status',  # ADD THIS
+            'username', 'password', 'created_at'
+        )
+    def get_days_remaining_to_complete(self, obj):
+            return obj.get_days_remaining()
+    def get_total_course_days(self, obj):
+        return obj.get_total_course_days()
+    def get_course_status(self, obj):
+        return obj.get_course_status()
+class UpdateFeeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentRegistration
+        fields = ('paid_fee',)
+    
+    def validate_paid_fee(self, value):
+        if value > self.instance.total_course_fee:
+            raise serializers.ValidationError(
+                f"Paid fee cannot exceed total course fee: {self.instance.total_course_fee}"
+            )
+        return value

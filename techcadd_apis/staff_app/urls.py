@@ -28,4 +28,11 @@ urlpatterns = [
     path('registrations/create/', views.create_student_registration, name='create-registration'),
     path('registrations/list/', views.list_student_registrations, name='list-registrations'),
     path('registrations/<int:registration_id>/', views.get_registration_detail, name='registration-detail'),
+    path('registrations/search/', views.search_student_registrations, name='search-registrations'),  # NEW
+    # Fee Management
+    path('registrations/update-fee/', views.update_student_fee, name='update-fee'),
+    # path('registrations/<str:registration_number>/update-fee/', views.update_student_fee, name='update-fee'),
+    path('registrations/fee-history/', views.get_fee_payment_history, name='fee-history'),
+    # Certificate Management
+    path('registrations/generate-certificate/', views.generate_certificate, name='generate-certificate'),
 ]

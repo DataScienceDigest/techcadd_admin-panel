@@ -299,6 +299,17 @@ class CreateStudentRegistrationSerializer(serializers.ModelSerializer):
         
         # Create registration
         registration = StudentRegistration.objects.create(**validated_data)
+        # Create initial payment
+        paid_fee = validated_data.get('paid_fee', 0)
+        if paid_fee > 0:
+            PaymentTransaction.objects.create(
+                student_registration=registration,
+                installment_number=1,
+                amount=paid_fee,
+                payment_mode='cash',  # Use actual payment mode
+                received_by=staff_profile,
+                remark='Initial registration payment'
+            )
         return registration
 
 class CourseOptionsSerializer(serializers.Serializer):

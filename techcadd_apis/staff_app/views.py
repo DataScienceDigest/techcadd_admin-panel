@@ -760,16 +760,76 @@ def get_fee_payment_history(request):
     try:
         registration = StudentRegistration.objects.get(registration_number=registration_number)
         
-        # For now, return basic fee info. You can create a Payment model later for detailed history
-        fee_info = {
-            'total_course_fee': float(registration.total_course_fee),
-            'paid_fee': float(registration.paid_fee),
-            'fee_balance': float(registration.fee_balance),
-            'payment_percentage': round((registration.paid_fee / registration.total_course_fee) * 100, 2),
-            'last_updated': registration.updated_at
-        }
+        # Get all payment transactions
+        payment_transactions = PaymentTransaction.objects.filter(
+            student_registration=registration
+        ).order_by('installment_number')
         
-        return Response(fee_info)
+        payment_serializer = PaymentTransactionSerializer(payment_transactions, many=True)
+        
+        # Calculate summary
+        total_paid = sum([t.amount for t in payment_transactions])
+        payment_percentage = (total_paid / registration.total_course_fee) * 100 if registration.total_course_fee > 0 else 0
+        
+        return Response({
+            'registration_number': registration.registration_number,
+            'student_name': registration.student_name,
+            'total_course_fee': float(registration.total_course_fee),
+            'total_paid_fee': float(total_paid),
+            'fee_balance': float(registration.total_course_fee - total_paid),
+            'payment_percentage': round(payment_percentage, 2),
+            'total_installments': payment_transactions.count(),
+            'payment_status': 'fully_paid' if total_paid >= registration.total_course_fee else 'partially_paid',
+            'payment_history': payment_serializer.data
+        })
+        
+    except StudentRegistration.DoesNotExist:
+        return Response({
+            'error': 'Registration not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+        # new api for add payments 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_payment_installment(request):
+    registration_number = request.GET.get('registration_number')
+    
+    if not registration_number:
+        return Response({'error': 'registration_number parameter is required'}, status=400)
+    staff_profile = get_staff_profile(request.user)
+    if not staff_profile:
+        return Response({
+            'error': 'Access denied. Staff privileges required.'
+        }, status=status.HTTP_403_FORBIDDEN)
+    try:
+        registration = StudentRegistration.objects.get(registration_number=registration_number)
+        
+        serializer = AddPaymentSerializer(
+            data=request.data,
+            context={
+                'request': request,
+                'registration': registration,
+                'staff_profile': staff_profile
+            }
+        )
+        
+        if serializer.is_valid():
+            payment = serializer.save()
+            
+            # Return updated payment history
+            payment_history_url = f"/api/staff/registrations/{registration_number}/fee-history/"
+            
+            return Response({
+                'message': f'Payment installment #{payment.installment_number} added successfully',
+                'payment_details': PaymentTransactionSerializer(payment).data,
+                'updated_balance': float(registration.total_course_fee - registration.paid_fee),
+                'payment_history_url': payment_history_url
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response({
+            'error': 'Validation failed',
+            'details': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
         
     except StudentRegistration.DoesNotExist:
         return Response({

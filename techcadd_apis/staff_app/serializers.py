@@ -348,3 +348,48 @@ class UpdateFeeSerializer(serializers.ModelSerializer):
                 f"Paid fee cannot exceed total course fee: {self.instance.total_course_fee}"
             )
         return value
+
+# staff_app/serializers.py - Add these serializers
+
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+    received_by_name = serializers.CharField(source='received_by.user.get_full_name', read_only=True)
+    payment_mode_display = serializers.CharField(source='get_payment_mode_display', read_only=True)
+    
+    class Meta:
+        model = PaymentTransaction
+        fields = (
+            'id', 'installment_number', 'amount', 'payment_date', 
+            'payment_mode', 'payment_mode_display', 'transaction_id',
+            'received_by', 'received_by_name', 'remark', 'created_at'
+        )
+
+class AddPaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentTransaction
+        fields = ('amount', 'payment_mode', 'transaction_id', 'remark')
+    
+    def create(self, validated_data):
+        request = self.context.get('request')
+        registration = self.context.get('registration')
+        staff_profile = self.context.get('staff_profile')
+        
+        # Get next installment number
+        last_payment = PaymentTransaction.objects.filter(
+            student_registration=registration
+        ).order_by('-installment_number').first()
+        
+        next_installment = (last_payment.installment_number + 1) if last_payment else 1
+        
+        # Create payment transaction
+        payment = PaymentTransaction.objects.create(
+            student_registration=registration,
+            installment_number=next_installment,
+            received_by=staff_profile,
+            **validated_data
+        )
+        
+        # Update student registration paid_fee
+        registration.paid_fee += payment.amount
+        registration.save()
+        
+        return payment

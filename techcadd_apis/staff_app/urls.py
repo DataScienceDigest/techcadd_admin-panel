@@ -31,6 +31,7 @@ urlpatterns = [
     path('registrations/search/', views.search_student_registrations, name='search-registrations'),  # NEW
     # Fee Management
     path('registrations/update-fee/', views.update_student_fee, name='update-fee'),
+    path('registrations/add-payment/', views.add_payment_installment, name='add-payment'),
     # path('registrations/<str:registration_number>/update-fee/', views.update_student_fee, name='update-fee'),
     path('registrations/fee-history/', views.get_fee_payment_history, name='fee-history'),
     # Certificate Management

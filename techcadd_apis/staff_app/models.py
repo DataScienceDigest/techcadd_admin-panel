@@ -373,3 +373,32 @@ class StudentRegistration(models.Model):
             total_days = (self.course_completion_date - self.joining_date).days
             return total_days
         return None
+
+
+# staff_app/models.py - Add this model
+
+class PaymentTransaction(models.Model):
+    PAYMENT_MODES = [
+        ('cash', 'Cash'),
+        ('online', 'Online'),
+        ('cheque', 'Cheque'),
+        ('card', 'Card'),
+        ('upi', 'UPI'),
+    ]
+    
+    student_registration = models.ForeignKey(StudentRegistration, on_delete=models.CASCADE, related_name='payment_transactions')
+    installment_number = models.IntegerField(help_text="Installment number (1st, 2nd, 3rd, etc.)")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_date = models.DateField(auto_now_add=True)
+    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODES, default='cash')
+    transaction_id = models.CharField(max_length=100, blank=True, help_text="Transaction ID for online payments")
+    received_by = models.ForeignKey(StaffProfile, on_delete=models.CASCADE, related_name='received_payments')
+    remark = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'payment_transactions'
+        ordering = ['installment_number']
+    
+    def __str__(self):
+        return f"Installment #{self.installment_number} - {self.amount} for {self.student_registration.registration_number}"

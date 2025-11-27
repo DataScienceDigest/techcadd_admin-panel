@@ -38,7 +38,11 @@ class StaffProfile(models.Model):
 #     if created:
 #         StaffProfile.objects.get_or_create(user=instance)
 
-# staff_app/models.py - Add this to your existing models
+# staff_app/models.py
+from django.db import models
+import secrets
+import string
+
 class Student_api(models.Model):
     CENTRE_CHOICES = [
         ('jalandhar1', 'Jalandhar 1'),
@@ -49,6 +53,7 @@ class Student_api(models.Model):
         ('mohali', 'Mohali'),
         ('phagwara', 'Phagwara'),
     ]
+    
     TRADE_CHOICES = [
         ('computer', 'Computer'),
         ('it', 'IT'),
@@ -62,6 +67,7 @@ class Student_api(models.Model):
         ('hardware', 'Hardware'),
         ('networking', 'Networking'),
     ]
+    
     ENQUIRY_SOURCE_CHOICES = [
         ('social_media', 'Social Media'),
         ('just_dial', 'Just Dial'),
@@ -75,7 +81,6 @@ class Student_api(models.Model):
         ('google_search', 'Google Search'),
     ]
     
-    
     ENQUIRY_STATUS = [
         ('registration_done', 'Registration Done'),
         ('visited', 'Visited'),
@@ -87,31 +92,120 @@ class Student_api(models.Model):
         ('course_completed', 'Course Completed'),
         ('dropped', 'Dropped'),
     ]
+    
+    # Student Type Choices
+    STUDENT_TYPE_CHOICES = [
+        ('college', 'College Student'),
+        ('school', 'School Student'),
+        ('working', 'Working Professional'),
+    ]
+    
+    # NEW: Class Mode Choices
+    CLASS_MODE_CHOICES = [
+        ('online', 'Online'),
+        ('offline', 'Offline'),
+        ('both', 'Both (Online & Offline)'),
+    ]
+    
     # Student Personal Details
     student_name = models.CharField(max_length=100)
     date_of_birth = models.DateField()
     qualification = models.CharField(max_length=100)
-    work_college = models.CharField(max_length=100, blank=True)
+    
+    # Student Type (Required)
+    student_type = models.CharField(
+        max_length=20, 
+        choices=STUDENT_TYPE_CHOICES,
+        help_text="Type of student: college, school, or working"
+    )
+    
+    # College Student Fields (conditional)
+    semester = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True,
+        help_text="Required if student_type is 'college'"
+    )
+    college_name = models.CharField(
+        max_length=200, 
+        blank=True, 
+        null=True,
+        help_text="Required if student_type is 'college'"
+    )
+    
+    # School Student Fields (conditional)
+    class_name = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True,
+        help_text="Required if student_type is 'school'"
+    )
+    school_name = models.CharField(
+        max_length=200, 
+        blank=True, 
+        null=True,
+        help_text="Required if student_type is 'school'"
+    )
+    
+    # Working Professional Fields (conditional)
+    job_role = models.CharField(
+        max_length=100, 
+        blank=True, 
+        null=True,
+        help_text="Required if student_type is 'working'"
+    )
+    company_name = models.CharField(
+        max_length=200, 
+        blank=True, 
+        null=True,
+        help_text="Required if student_type is 'working'"
+    )
+    
+    # Contact Details
     mobile = models.CharField(max_length=15)
     email = models.EmailField(unique=True)
     address = models.TextField()
     
     # Enquiry Details
     enquiry_date = models.DateField(auto_now_add=True)
-    # centre = models.CharField(max_length=100)
     centre = models.CharField(max_length=20, choices=CENTRE_CHOICES)
-    enquiry_taken_by = models.ForeignKey(StaffProfile, on_delete=models.CASCADE, related_name='enquiries_taken')
+    enquiry_taken_by = models.ForeignKey(
+        'StaffProfile', 
+        on_delete=models.CASCADE, 
+        related_name='enquiries_taken'
+    )
     batch_time = models.CharField(max_length=50, blank=True)
-    course_fee_offer = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    # NEW: Class Mode Preference (Required)
+    class_mode = models.CharField(
+        max_length=10,
+        choices=CLASS_MODE_CHOICES,
+        help_text="Preferred mode of class: online, offline, or both"
+    )
+    
+    course_fee_offer = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True
+    )
     course_interested = models.CharField(max_length=100, blank=True)
-    # trade = models.CharField(max_length=20, choices=TRADES)
     trade = models.CharField(max_length=20, choices=TRADE_CHOICES)
-    # enquiry_source = models.CharField(max_length=20, choices=ENQUIRY_SOURCES)
     enquiry_source = models.CharField(max_length=20, choices=ENQUIRY_SOURCE_CHOICES)
-    assign_enquiry = models.ForeignKey(StaffProfile, on_delete=models.CASCADE, related_name='assigned_enquiries', null=True, blank=True)
+    assign_enquiry = models.ForeignKey(
+        'StaffProfile', 
+        on_delete=models.CASCADE, 
+        related_name='assigned_enquiries', 
+        null=True, 
+        blank=True
+    )
     
     # Tracking Details
-    enquiry_status = models.CharField(max_length=20, choices=ENQUIRY_STATUS, default='new')
+    enquiry_status = models.CharField(
+        max_length=20, 
+        choices=ENQUIRY_STATUS, 
+        default='in_process'
+    )
     remark = models.TextField(blank=True) 
     next_follow_up_date = models.DateField(null=True, blank=True)
     
@@ -126,9 +220,11 @@ class Student_api(models.Model):
     class Meta:
         db_table = 'students'
         ordering = ['-created_at']
+        verbose_name = 'Student Enquiry'
+        verbose_name_plural = 'Student Enquiries'
     
     def __str__(self):
-        return f"{self.student_name} ({self.username})"
+        return f"{self.student_name} ({self.username}) - {self.get_student_type_display()} - {self.get_class_mode_display()}"
     
     def save(self, *args, **kwargs):
         # Auto-generate username if not provided
@@ -136,7 +232,6 @@ class Student_api(models.Model):
             base_username = self.student_name.lower().replace(' ', '')
             username = base_username
             counter = 1
-            # FIX: Use Student_api instead of Student
             while Student_api.objects.filter(username=username).exists():
                 username = f"{base_username}{counter}"
                 counter += 1
@@ -144,12 +239,31 @@ class Student_api(models.Model):
         
         # Auto-generate password if not provided
         if not self.password:
-            import secrets
-            import string
             alphabet = string.ascii_letters + string.digits
             self.password = ''.join(secrets.choice(alphabet) for i in range(8))
         
         super().save(*args, **kwargs)
+    
+    def get_student_info(self):
+        """Returns student-type specific information"""
+        if self.student_type == 'college':
+            return f"{self.semester} at {self.college_name}"
+        elif self.student_type == 'school':
+            return f"Class {self.class_name} at {self.school_name}"
+        elif self.student_type == 'working':
+            return f"{self.job_role} at {self.company_name}"
+        return "N/A"
+    
+    def get_full_info(self):
+        """Returns complete student information"""
+        return {
+            'name': self.student_name,
+            'type': self.get_student_type_display(),
+            'details': self.get_student_info(),
+            'class_mode': self.get_class_mode_display(),
+            'course': self.course_interested,
+            'centre': self.get_centre_display()
+        }
 
 
 # staff_app/models.py - Add these models

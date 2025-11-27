@@ -115,18 +115,23 @@ class StudentSerializer(serializers.ModelSerializer):
         read_only_fields = ('username', 'password', 'created_at', 'updated_at', 'enquiry_taken_by')
 
 class CreateStudentSerializer(serializers.ModelSerializer):
+    """Serializer for creating student enquiries"""
+    
     class Meta:
         model = Student_api
         fields = (
-            'student_name', 'date_of_birth', 'qualification', 'work_college',
-            'mobile', 'email', 'address', 'centre', 'batch_time', 
-            'course_fee_offer', 'course_interested', 'trade', 'enquiry_source',
-            'assign_enquiry', 'enquiry_status', 'remark', 'next_follow_up_date'
+            'student_name', 'date_of_birth', 'qualification', 
+            'student_type', 'semester', 'college_name', 
+            'class_name', 'school_name', 'job_role', 'company_name',
+            'mobile', 'email', 'address', 
+            'centre', 'batch_time', 'class_mode',
+            'course_fee_offer', 'course_interested', 'trade', 
+            'enquiry_source', 'assign_enquiry', 
+            'enquiry_status', 'remark', 'next_follow_up_date'
         )
     
     def validate_mobile(self, value):
         """Validate mobile number format"""
-        # Add your mobile validation logic here
         if len(value) < 10:
             raise serializers.ValidationError("Mobile number must be at least 10 digits")
         return value
@@ -137,7 +142,64 @@ class CreateStudentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A student with this email already exists.")
         return value
     
+    def validate(self, data):
+        """
+        Cross-field validation based on student_type
+        """
+        student_type = data.get('student_type')
+        
+        # Validate College Student
+        if student_type == 'college':
+            if not data.get('semester'):
+                raise serializers.ValidationError({
+                    'semester': 'Semester is required for college students.'
+                })
+            if not data.get('college_name'):
+                raise serializers.ValidationError({
+                    'college_name': 'College name is required for college students.'
+                })
+            # Clear other type fields
+            data['class_name'] = None
+            data['school_name'] = None
+            data['job_role'] = None
+            data['company_name'] = None
+        
+        # Validate School Student
+        elif student_type == 'school':
+            if not data.get('class_name'):
+                raise serializers.ValidationError({
+                    'class_name': 'Class is required for school students.'
+                })
+            if not data.get('school_name'):
+                raise serializers.ValidationError({
+                    'school_name': 'School name is required for school students.'
+                })
+            # Clear other type fields
+            data['semester'] = None
+            data['college_name'] = None
+            data['job_role'] = None
+            data['company_name'] = None
+        
+        # Validate Working Professional
+        elif student_type == 'working':
+            if not data.get('job_role'):
+                raise serializers.ValidationError({
+                    'job_role': 'Job role is required for working professionals.'
+                })
+            if not data.get('company_name'):
+                raise serializers.ValidationError({
+                    'company_name': 'Company name is required for working professionals.'
+                })
+            # Clear other type fields
+            data['semester'] = None
+            data['college_name'] = None
+            data['class_name'] = None
+            data['school_name'] = None
+        
+        return data
+    
     def create(self, validated_data):
+        """Create student with auto-assigned staff"""
         # Get the staff member who is creating the student (from request)
         request = self.context.get('request')
         if request and hasattr(request, 'user'):
@@ -152,18 +214,70 @@ class CreateStudentSerializer(serializers.ModelSerializer):
         student = Student_api.objects.create(**validated_data)
         return student
 
-class StudentListSerializer(serializers.ModelSerializer):
-    enquiry_taken_by_name = serializers.CharField(source='enquiry_taken_by.user.get_full_name', read_only=True)
-    enquiry_status_display = serializers.CharField(source='get_enquiry_status_display', read_only=True)
-    trade_display = serializers.CharField(source='get_trade_display', read_only=True)
+class StudentSerializer(serializers.ModelSerializer):
+    """Serializer for displaying complete student information"""
+    
+    enquiry_taken_by = StaffProfileSerializer(read_only=True)
+    assign_enquiry = StaffProfileSerializer(read_only=True)
+    
+    # Display human-readable values
     centre_display = serializers.CharField(source='get_centre_display', read_only=True)
+    trade_display = serializers.CharField(source='get_trade_display', read_only=True)
+    enquiry_source_display = serializers.CharField(source='get_enquiry_source_display', read_only=True)
+    enquiry_status_display = serializers.CharField(source='get_enquiry_status_display', read_only=True)
+    student_type_display = serializers.CharField(source='get_student_type_display', read_only=True)
+    class_mode_display = serializers.CharField(source='get_class_mode_display', read_only=True)
+    
+    # Add method field for student-specific info
+    student_info = serializers.SerializerMethodField()
     
     class Meta:
         model = Student_api
         fields = (
-            'id', 'student_name', 'mobile', 'email', 'enquiry_date',
-            'enquiry_status', 'enquiry_status_display', 'enquiry_taken_by_name',
-            'next_follow_up_date', 'centre', 'centre_display', 'trade', 'trade_display'
+            'id', 'student_name', 'date_of_birth', 'qualification',
+            'student_type', 'student_type_display',
+            'semester', 'college_name',
+            'class_name', 'school_name',
+            'job_role', 'company_name',
+            'student_info',
+            'mobile', 'email', 'address',
+            'enquiry_date', 'centre', 'centre_display',
+            'enquiry_taken_by', 'assign_enquiry',
+            'batch_time', 'class_mode', 'class_mode_display',
+            'course_fee_offer', 'course_interested',
+            'trade', 'trade_display',
+            'enquiry_source', 'enquiry_source_display',
+            'enquiry_status', 'enquiry_status_display',
+            'remark', 'next_follow_up_date',
+            'username',  # Include username but NOT password for security
+            'created_at', 'updated_at'
+        )
+    
+    def get_student_info(self, obj):
+        """Get formatted student-specific information"""
+        return obj.get_student_info()
+
+class StudentListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for listing students"""
+    
+    enquiry_taken_by_name = serializers.CharField(
+        source='enquiry_taken_by.user.get_full_name', 
+        read_only=True
+    )
+    student_type_display = serializers.CharField(source='get_student_type_display', read_only=True)
+    enquiry_status_display = serializers.CharField(source='get_enquiry_status_display', read_only=True)
+    class_mode_display = serializers.CharField(source='get_class_mode_display', read_only=True)
+    
+    class Meta:
+        model = Student_api
+        fields = (
+            'id', 'student_name', 'mobile', 'email',
+            'student_type', 'student_type_display',
+            'class_mode', 'class_mode_display',
+            'course_interested', 'trade',
+            'enquiry_status', 'enquiry_status_display',
+            'enquiry_taken_by_name', 'next_follow_up_date',
+            'created_at'
         )
 
 class UpdateStudentSerializer(serializers.ModelSerializer):

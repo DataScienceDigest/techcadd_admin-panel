@@ -206,7 +206,24 @@ def staff_token_refresh(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_student(request):
-    """Staff creates new student enquiry"""
+    """
+    Staff creates new student enquiry
+    
+    Required fields:
+    - student_name, date_of_birth, qualification
+    - student_type (college/school/working)
+    - Based on student_type:
+        * college: semester, college_name
+        * school: class_name, school_name
+        * working: job_role, company_name
+    - mobile, email, address
+    - centre, batch_time, class_mode
+    - course_interested, trade, enquiry_source
+    
+    Optional fields:
+    - assign_enquiry, course_fee_offer
+    - enquiry_status, remark, next_follow_up_date
+    """
     staff_profile = get_staff_profile(request.user)
     
     if not staff_profile:
@@ -214,7 +231,10 @@ def create_student(request):
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
     
-    serializer = CreateStudentSerializer(data=request.data, context={'request': request})
+    serializer = CreateStudentSerializer(
+        data=request.data, 
+        context={'request': request}
+    )
     
     if serializer.is_valid():
         try:
@@ -228,7 +248,7 @@ def create_student(request):
                 'student': response_serializer.data,
                 'login_credentials': {
                     'username': student.username,
-                    'password': student.password  # This will be the plain password for first time
+                    'password': student.password  # Plain password for first time only
                 }
             }, status=status.HTTP_201_CREATED)
             

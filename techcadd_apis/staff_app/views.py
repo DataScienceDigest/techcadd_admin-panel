@@ -525,10 +525,77 @@ def get_courses_by_type(request, course_type_id):
 #         'error': 'Validation failed',
 #         'details': serializer.errors
 #     }, status=status.HTTP_400_BAD_REQUEST)
+# @api_view(['POST'])
+# @permission_classes([IsAuthenticated])
+# def create_student_registration(request):
+#     """Create new student registration"""
+#     staff_profile = get_staff_profile(request.user)
+    
+#     if not staff_profile:
+#         return Response({
+#             'error': 'Access denied. Staff privileges required.'
+#         }, status=status.HTTP_403_FORBIDDEN)
+    
+#     serializer = CreateStudentRegistrationSerializer(
+#         data=request.data, 
+#         context={'request': request}
+#     )
+    
+#     if serializer.is_valid():
+#         try:
+#             registration = serializer.save()
+            
+#             # Use special serializer that shows password ONLY for create response
+#             response_serializer = CreateStudentRegistrationResponseSerializer(registration)
+            
+#             return Response({
+#                 'message': 'Student registration created successfully',
+#                 'registration': response_serializer.data,
+#                 'login_credentials': {
+#                     'username': registration.username,
+#                     'password': registration.password  # Show only once
+#                 }
+#             }, status=status.HTTP_201_CREATED)
+            
+#         except Exception as e:
+#             return Response({
+#                 'error': f'Failed to create registration: {str(e)}'
+#             }, status=status.HTTP_400_BAD_REQUEST)
+    
+#     return Response({
+#         'error': 'Validation failed',
+#         'details': serializer.errors
+#     }, status=status.HTTP_400_BAD_REQUEST)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_student_registration(request):
-    """Create new student registration"""
+    """
+    Staff creates new student registration
+    
+    Required fields:
+    - branch, joining_date
+    - student_name, father_name, date_of_birth, qualification
+    - student_type (college/school/working)
+    - Based on student_type:
+        * college: semester, college_name
+        * school: class_name, school_name
+        * working: job_role, company_name
+    - work_college (workplace or college name)
+    - email, contact_address, phone_no
+    - course_type, course, class_mode
+    - duration_months, duration_hours
+    - total_course_fee
+    
+    Optional fields:
+    - whatsapp_no, parents_no
+    - software_covered (overrides course software)
+    - paid_fee (defaults to 0)
+    
+    Conditional fields:
+    - class_name, school_name (required if student_type='school')
+    - semester, college_name (required if student_type='college')
+    - job_role, company_name (required if student_type='working')
+    """
     staff_profile = get_staff_profile(request.user)
     
     if not staff_profile:
@@ -545,16 +612,31 @@ def create_student_registration(request):
         try:
             registration = serializer.save()
             
-            # Use special serializer that shows password ONLY for create response
+            # Use special serializer that shows all registration details
             response_serializer = CreateStudentRegistrationResponseSerializer(registration)
             
             return Response({
                 'message': 'Student registration created successfully',
                 'registration': response_serializer.data,
+                'registration_details': {
+                    'registration_number': registration.registration_number,
+                    'student_name': registration.student_name,
+                    'branch': registration.get_branch_display(),
+                    'course': registration.course.name if registration.course else None,
+                    'class_mode': registration.get_class_mode_display(),
+                    'student_type': registration.get_student_type_display(),
+                    'joining_date': registration.joining_date,
+                    'completion_date': registration.course_completion_date,
+                    'total_fee': float(registration.total_course_fee),
+                    'paid_fee': float(registration.paid_fee),
+                    'balance_fee': float(registration.fee_balance)
+                },
                 'login_credentials': {
                     'username': registration.username,
-                    'password': registration.password  # Show only once
-                }
+                    'password': registration.password,  # Show plain password only once
+                    'note': 'Please save these credentials securely. Password will not be shown again.'
+                },
+                'student_type_specific_info': registration.get_student_info()
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:

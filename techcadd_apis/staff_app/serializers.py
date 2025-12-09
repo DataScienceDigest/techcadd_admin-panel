@@ -93,26 +93,26 @@ class UserSerializer(serializers.ModelSerializer):
 # staff_app/serializers.py - Add these to your existing serializers
 from .models import Student_api
 
-class StudentSerializer(serializers.ModelSerializer):
-    enquiry_taken_by_name = serializers.CharField(source='enquiry_taken_by.user.get_full_name', read_only=True)
-    assign_enquiry_name = serializers.CharField(source='assign_enquiry.user.get_full_name', read_only=True)
-    enquiry_status_display = serializers.CharField(source='get_enquiry_status_display', read_only=True)
-    trade_display = serializers.CharField(source='get_trade_display', read_only=True)
-    centre_display = serializers.CharField(source='get_centre_display', read_only=True)
-    enquiry_source_display = serializers.CharField(source='get_enquiry_source_display', read_only=True)
+# class StudentSerializer(serializers.ModelSerializer):
+#     enquiry_taken_by_name = serializers.CharField(source='enquiry_taken_by.user.get_full_name', read_only=True)
+#     assign_enquiry_name = serializers.CharField(source='assign_enquiry.user.get_full_name', read_only=True)
+#     enquiry_status_display = serializers.CharField(source='get_enquiry_status_display', read_only=True)
+#     trade_display = serializers.CharField(source='get_trade_display', read_only=True)
+#     centre_display = serializers.CharField(source='get_centre_display', read_only=True)
+#     enquiry_source_display = serializers.CharField(source='get_enquiry_source_display', read_only=True)
     
-    class Meta:
-        model = Student_api
-        fields = (
-            'id', 'student_name', 'date_of_birth', 'qualification', 'work_college',
-            'mobile', 'email', 'address', 'enquiry_date', 'centre', 'centre_display',
-            'enquiry_taken_by', 'enquiry_taken_by_name', 'batch_time', 
-            'course_fee_offer', 'course_interested', 'trade', 'trade_display', 
-            'enquiry_source', 'enquiry_source_display', 'assign_enquiry', 
-            'assign_enquiry_name', 'enquiry_status', 'enquiry_status_display', 
-            'remark', 'next_follow_up_date', 'username', 'password', 'created_at'
-        )
-        read_only_fields = ('username', 'password', 'created_at', 'updated_at', 'enquiry_taken_by')
+#     class Meta:
+#         model = Student_api
+#         fields = (
+#             'id', 'student_name', 'date_of_birth', 'qualification', 'work_college',
+#             'mobile', 'email', 'address', 'enquiry_date', 'centre', 'centre_display',
+#             'enquiry_taken_by', 'enquiry_taken_by_name', 'batch_time', 
+#             'course_fee_offer', 'course_interested', 'trade', 'trade_display', 
+#             'enquiry_source', 'enquiry_source_display', 'assign_enquiry', 
+#             'assign_enquiry_name', 'enquiry_status', 'enquiry_status_display', 
+#             'remark', 'next_follow_up_date', 'username', 'password', 'created_at'
+#         )
+#         read_only_fields = ('username', 'password', 'created_at', 'updated_at', 'enquiry_taken_by')
 
 class CreateStudentSerializer(serializers.ModelSerializer):
     """Serializer for creating student enquiries"""
@@ -377,55 +377,165 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
         return obj.get_course_status()
 
 class CreateStudentRegistrationSerializer(serializers.ModelSerializer):
+    """Serializer for creating student registrations with all fields"""
+    
     class Meta:
         model = StudentRegistration
         fields = (
-            'branch', 'joining_date', 'student_name', 'father_name', 'date_of_birth',
-            'email', 'qualification', 'work_college', 'contact_address', 'phone_no',
-            'whatsapp_no', 'parents_no', 'course_type', 'course', 'software_covered',
-            'duration_months', 'duration_hours', 'total_course_fee', 'paid_fee'  # Added fee fields
+            # Branch and Registration Details
+            'branch', 'joining_date',
+            
+            # Student Personal Details
+            'student_name', 'father_name', 'date_of_birth', 'qualification',
+            
+            # Student Type Fields
+            'student_type', 'semester', 'college_name',
+            'class_name', 'school_name', 'job_role', 'company_name',
+            
+            # Work/Study Information
+            'work_college',
+            
+            # Contact Details
+            'email', 'contact_address', 'phone_no', 'whatsapp_no', 'parents_no',
+            
+            # Course Details
+            'course_type', 'course', 'class_mode', 'software_covered',
+            'duration_months', 'duration_hours',
+            
+            # Financial Details
+            'total_course_fee', 'paid_fee'
         )
     
     def validate(self, data):
+        """
+        Comprehensive validation including student_type specific fields
+        """
         # Ensure paid_fee doesn't exceed total_course_fee
         if data.get('paid_fee', 0) > data.get('total_course_fee', 0):
             raise serializers.ValidationError({
                 'paid_fee': 'Paid fee cannot exceed total course fee'
             })
+        
+        # Student type specific validation
+        student_type = data.get('student_type')
+        
+        # Validate College Student
+        if student_type == 'college':
+            if not data.get('semester'):
+                raise serializers.ValidationError({
+                    'semester': 'Semester is required for college students.'
+                })
+            if not data.get('college_name'):
+                raise serializers.ValidationError({
+                    'college_name': 'College name is required for college students.'
+                })
+            # Clear other type fields
+            data['class_name'] = None
+            data['school_name'] = None
+            data['job_role'] = None
+            data['company_name'] = None
+        
+        # Validate School Student
+        elif student_type == 'school':
+            if not data.get('class_name'):
+                raise serializers.ValidationError({
+                    'class_name': 'Class is required for school students.'
+                })
+            if not data.get('school_name'):
+                raise serializers.ValidationError({
+                    'school_name': 'School name is required for school students.'
+                })
+            # Clear other type fields
+            data['semester'] = None
+            data['college_name'] = None
+            data['job_role'] = None
+            data['company_name'] = None
+        
+        # Validate Working Professional
+        elif student_type == 'working':
+            if not data.get('job_role'):
+                raise serializers.ValidationError({
+                    'job_role': 'Job role is required for working professionals.'
+                })
+            if not data.get('company_name'):
+                raise serializers.ValidationError({
+                    'company_name': 'Company name is required for working professionals.'
+                })
+            # Clear other type fields
+            data['semester'] = None
+            data['college_name'] = None
+            data['class_name'] = None
+            data['school_name'] = None
+        
+        # Validate work_college based on student type
+        if student_type == 'college' and not data.get('work_college'):
+            data['work_college'] = data.get('college_name', '')
+        elif student_type == 'school' and not data.get('work_college'):
+            data['work_college'] = data.get('school_name', '')
+        elif student_type == 'working' and not data.get('work_college'):
+            data['work_college'] = data.get('company_name', '')
+        
         return data
     
     def validate_email(self, value):
+        """Validate email uniqueness"""
         if StudentRegistration.objects.filter(email=value).exists():
             raise serializers.ValidationError("A student with this email already exists.")
         return value
     
     def validate_phone_no(self, value):
+        """Validate phone number format"""
         if len(value) < 10:
             raise serializers.ValidationError("Phone number must be at least 10 digits")
         return value
     
+    def validate_class_mode(self, value):
+        """Validate class mode"""
+        valid_modes = ['online', 'offline', 'both']
+        if value not in valid_modes:
+            raise serializers.ValidationError(
+                f"Class mode must be one of: {', '.join(valid_modes)}"
+            )
+        return value
+    
+    def validate_student_type(self, value):
+        """Validate student type"""
+        valid_types = ['college', 'school', 'working']
+        if value not in valid_types:
+            raise serializers.ValidationError(
+                f"Student type must be one of: {', '.join(valid_types)}"
+            )
+        return value
+    
     def create(self, validated_data):
-        # Set the created_by staff
+        """Create student registration with all required fields"""
+        # Get the staff member who is creating the registration (from request)
         request = self.context.get('request')
         if request and hasattr(request, 'user'):
-            staff_profile = StaffProfile.objects.get(user=request.user)
-            validated_data['created_by'] = staff_profile
+            try:
+                staff_profile = StaffProfile.objects.get(user=request.user)
+                validated_data['created_by'] = staff_profile
+            except StaffProfile.DoesNotExist:
+                raise serializers.ValidationError("Staff profile not found for the current user.")
         
-        # Create registration
+        # Create registration - username, password, and registration number 
+        # will be auto-generated in save() method of the model
         registration = StudentRegistration.objects.create(**validated_data)
-        # Create initial payment
+        
+        # Create initial payment if paid_fee > 0
         paid_fee = validated_data.get('paid_fee', 0)
-        if paid_fee > 0:
+        if paid_fee > 0 and 'created_by' in validated_data:
             PaymentTransaction.objects.create(
                 student_registration=registration,
                 installment_number=1,
                 amount=paid_fee,
-                payment_mode='cash',  # Use actual payment mode
-                received_by=staff_profile,
+                payment_mode='cash',  # Default to cash, can be changed in API
+                received_by=validated_data['created_by'],
                 remark='Initial registration payment'
             )
+        
         return registration
-
+    
 class CourseOptionsSerializer(serializers.Serializer):
     course_types = CourseTypeSerializer(many=True)
     duration_choices = serializers.ListField(
@@ -434,34 +544,93 @@ class CourseOptionsSerializer(serializers.Serializer):
 
 class CreateStudentRegistrationResponseSerializer(serializers.ModelSerializer):
     """Serializer used ONLY for create response to show password once"""
+    
+    # Display fields
     course_type_name = serializers.CharField(source='course_type.name', read_only=True)
     course_name = serializers.CharField(source='course.name', read_only=True)
     branch_display = serializers.CharField(source='get_branch_display', read_only=True)
+    student_type_display = serializers.CharField(source='get_student_type_display', read_only=True)
+    class_mode_display = serializers.CharField(source='get_class_mode_display', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.user.get_full_name', read_only=True)
+    
+    # Student type specific info
+    student_type_info = serializers.SerializerMethodField(read_only=True)
+    
+    # Course status fields
     is_eligible_for_certificate = serializers.BooleanField(read_only=True)
     days_remaining_to_complete = serializers.SerializerMethodField(read_only=True)
-    total_course_days = serializers.SerializerMethodField(read_only=True)  # ADD THIS
-    course_status = serializers.SerializerMethodField(read_only=True)  # ADD THIS
-    
+    total_course_days = serializers.SerializerMethodField(read_only=True)
+    course_status = serializers.SerializerMethodField(read_only=True)
     
     class Meta:
         model = StudentRegistration
         fields = (
-            'id', 'registration_number', 'branch', 'branch_display', 'joining_date', 
-            'student_name', 'email', 'phone_no', 'course_type_name', 'course_name',
-            'total_course_fee', 'paid_fee', 'fee_balance',  # Fee info
-            'course_completion_date',  # Completion date
-            'days_remaining_to_complete',  # NEW: Days remaining
-            'is_eligible_for_certificate',  # Eligibility
-            'total_course_days',  # ADD THIS
-            'course_status',  # ADD THIS
-            'username', 'password', 'created_at'
+            # Registration details
+            'id', 'registration_number', 
+            'branch', 'branch_display', 
+            'joining_date', 'created_at',
+            
+            # Student personal details
+            'student_name', 'father_name', 
+            'date_of_birth', 'qualification',
+            
+            # Student type fields
+            'student_type', 'student_type_display',
+            'semester', 'college_name',
+            'class_name', 'school_name',
+            'job_role', 'company_name',
+            'work_college',
+            'student_type_info',
+            
+            # Contact details
+            'email', 'contact_address',
+            'phone_no', 'whatsapp_no', 'parents_no',
+            
+            # Course details
+            'course_type', 'course_type_name',
+            'course', 'course_name',
+            'class_mode', 'class_mode_display',
+            'software_covered',
+            'duration_months', 'duration_hours',
+            
+            # Financial details
+            'total_course_fee', 'paid_fee', 'fee_balance',
+            
+            # Course status
+            'course_completion_date',
+            'days_remaining_to_complete',
+            'total_course_days',
+            'course_status',
+            'is_eligible_for_certificate',
+            
+            # Certificate details
+            'certificate_issued',
+            'certificate_issue_date',
+            'certificate_number',
+            
+            # Staff details
+            'created_by', 'created_by_name',
+            
+            # Login credentials (shown only once)
+            'username', 'password'
         )
+    
+    def get_student_type_info(self, obj):
+        """Get student type specific information"""
+        return obj.get_student_info()
+    
     def get_days_remaining_to_complete(self, obj):
-            return obj.get_days_remaining()
+        """Get days remaining for course completion"""
+        return obj.get_days_remaining()
+    
     def get_total_course_days(self, obj):
+        """Get total course duration in days"""
         return obj.get_total_course_days()
+    
     def get_course_status(self, obj):
+        """Get course status (not_started/ongoing/completed)"""
         return obj.get_course_status()
+    
 class UpdateFeeSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentRegistration

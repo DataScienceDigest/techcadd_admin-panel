@@ -12,20 +12,41 @@ from .models import Student_api
 from .serializers import StudentSerializer, CreateStudentSerializer, StudentListSerializer, UpdateStudentSerializer
 
 # Helper functions
+# def is_staff_user(user):
+#     """Check if user is an active staff member"""
+#     try:
+#         return StaffProfile.objects.filter(user=user, is_active=True).exists()
+#     except:
+#         return False
+# -----------------------------start here permissions ---------------------
 def is_staff_user(user):
-    """Check if user is an active staff member"""
+    """Check if user is an active staff member OR an admin"""
     try:
+        # Check if user is a superuser (Admin)
+        if hasattr(user, 'is_superuser') and user.is_superuser:
+            return True
+        
+        # Check if user is an active staff member
         return StaffProfile.objects.filter(user=user, is_active=True).exists()
     except:
         return False
 
+
 def get_staff_profile(user):
-    """Get staff profile if user is staff"""
+    """Get staff profile if user is staff (returns None for admins)"""
     try:
+        if hasattr(user, 'is_superuser') and user.is_superuser:
+            return None
+        
         return StaffProfile.objects.get(user=user, is_active=True)
     except StaffProfile.DoesNotExist:
         return None
 
+
+def is_admin_user(user):
+    """Helper function to explicitly check if user is admin"""
+    return hasattr(user, 'is_superuser') and user.is_superuser
+#  -----------------------admin function ends here -------------------------
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def staff_login(request):
@@ -102,7 +123,7 @@ def staff_profile(request):
     """Get current staff user profile"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -116,7 +137,7 @@ def staff_dashboard(request):
     """Staff dashboard - accessible to all staff"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -140,7 +161,7 @@ def staff_reports(request):
     """Staff reports - role-based access"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -226,7 +247,7 @@ def create_student(request):
     """
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -262,35 +283,77 @@ def create_student(request):
         'details': serializer.errors
     }, status=status.HTTP_400_BAD_REQUEST)
 
+# @api_view(['GET'])
+# @permission_classes([IsAuthenticated])
+# def list_students(request):
+#     """Staff views all students (with filtering options)"""
+#     staff_profile = get_staff_profile(request.user)
+    
+#     if not staff_profile and not is_admin_user(request.user):
+#         return Response({
+#             'error': 'Access denied. Staff privileges required.'
+#         }, status=status.HTTP_403_FORBIDDEN)
+    
+#     # Get query parameters for filtering
+#     enquiry_status = request.GET.get('enquiry_status')
+#     trade = request.GET.get('trade')
+#     centre = request.GET.get('centre')
+    
+#     students = Student_api.objects.all()
+    
+#     # Apply filters
+#     if enquiry_status:
+#         students = students.filter(enquiry_status=enquiry_status)
+#     if trade:
+#         students = students.filter(trade=trade)
+#     if centre:
+#         students = students.filter(centre=centre)
+    
+#     # If staff is not manager, only show their assigned enquiries
+#     if staff_profile.role not in ['manager']:
+#         students = students.filter(assign_enquiry=staff_profile)
+    
+#     serializer = StudentListSerializer(students, many=True)
+    
+#     return Response({
+#         'count': students.count(),
+#         'students': serializer.data
+#     })
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_students(request):
     """Staff views all students (with filtering options)"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    # First, check if user is admin - admins can see everything
+    if is_admin_user(request.user):
+        # Admins can see all students, no filtering needed
+        students = Student_api.objects.all()
+    elif not staff_profile:
+        # Non-admin users without staff profile are denied
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
+    else:
+        # Regular staff users - start with all students
+        students = Student_api.objects.all()
+        
+        # If staff is not manager, only show their assigned enquiries
+        if staff_profile.role not in ['manager']:
+            students = students.filter(assign_enquiry=staff_profile)
     
     # Get query parameters for filtering
     enquiry_status = request.GET.get('enquiry_status')
     trade = request.GET.get('trade')
     centre = request.GET.get('centre')
     
-    students = Student_api.objects.all()
-    
-    # Apply filters
+    # Apply filters (for both admin and staff)
     if enquiry_status:
         students = students.filter(enquiry_status=enquiry_status)
     if trade:
         students = students.filter(trade=trade)
     if centre:
         students = students.filter(centre=centre)
-    
-    # If staff is not manager, only show their assigned enquiries
-    if staff_profile.role not in ['manager']:
-        students = students.filter(assign_enquiry=staff_profile)
     
     serializer = StudentListSerializer(students, many=True)
     
@@ -299,13 +362,14 @@ def list_students(request):
         'students': serializer.data
     })
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_student_detail(request, student_id):
     """Staff gets specific student details"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -333,7 +397,7 @@ def update_student(request, student_id):
     """Staff updates student information"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -377,7 +441,7 @@ def student_stats(request):
     """Get student statistics for dashboard"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -419,7 +483,7 @@ def get_student_options(request):
     """Get all choice options for student forms"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -445,7 +509,7 @@ def get_registration_options(request):
     """Get all options for registration form"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -472,7 +536,7 @@ def get_courses_by_type(request, course_type_id):
     """Get courses by course type"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -484,88 +548,6 @@ def get_courses_by_type(request, course_type_id):
     except Course.DoesNotExist:
         return Response([])
 
-# @api_view(['POST'])
-# @permission_classes([IsAuthenticated])
-# def create_student_registration(request):
-#     """Create new student registration"""
-#     staff_profile = get_staff_profile(request.user)
-    
-#     if not staff_profile:
-#         return Response({
-#             'error': 'Access denied. Staff privileges required.'
-#         }, status=status.HTTP_403_FORBIDDEN)
-    
-#     serializer = CreateStudentRegistrationSerializer(
-#         data=request.data, 
-#         context={'request': request}
-#     )
-    
-#     if serializer.is_valid():
-#         try:
-#             registration = serializer.save()
-            
-#             # Return registration with generated credentials
-#             response_serializer = StudentRegistrationSerializer(registration)
-            
-#             return Response({
-#                 'message': 'Student registration created successfully',
-#                 'registration': response_serializer.data,
-#                 'login_credentials': {
-#                     'username': registration.username,
-#                     'password': registration.password
-#                 }
-#             }, status=status.HTTP_201_CREATED)
-            
-#         except Exception as e:
-#             return Response({
-#                 'error': f'Failed to create registration: {str(e)}'
-#             }, status=status.HTTP_400_BAD_REQUEST)
-    
-#     return Response({
-#         'error': 'Validation failed',
-#         'details': serializer.errors
-#     }, status=status.HTTP_400_BAD_REQUEST)
-# @api_view(['POST'])
-# @permission_classes([IsAuthenticated])
-# def create_student_registration(request):
-#     """Create new student registration"""
-#     staff_profile = get_staff_profile(request.user)
-    
-#     if not staff_profile:
-#         return Response({
-#             'error': 'Access denied. Staff privileges required.'
-#         }, status=status.HTTP_403_FORBIDDEN)
-    
-#     serializer = CreateStudentRegistrationSerializer(
-#         data=request.data, 
-#         context={'request': request}
-#     )
-    
-#     if serializer.is_valid():
-#         try:
-#             registration = serializer.save()
-            
-#             # Use special serializer that shows password ONLY for create response
-#             response_serializer = CreateStudentRegistrationResponseSerializer(registration)
-            
-#             return Response({
-#                 'message': 'Student registration created successfully',
-#                 'registration': response_serializer.data,
-#                 'login_credentials': {
-#                     'username': registration.username,
-#                     'password': registration.password  # Show only once
-#                 }
-#             }, status=status.HTTP_201_CREATED)
-            
-#         except Exception as e:
-#             return Response({
-#                 'error': f'Failed to create registration: {str(e)}'
-#             }, status=status.HTTP_400_BAD_REQUEST)
-    
-#     return Response({
-#         'error': 'Validation failed',
-#         'details': serializer.errors
-#     }, status=status.HTTP_400_BAD_REQUEST)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_student_registration(request):
@@ -598,7 +580,7 @@ def create_student_registration(request):
     """
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -655,7 +637,7 @@ def list_student_registrations(request):
     """List all student registrations"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -687,7 +669,7 @@ def get_registration_detail(request, registration_id):
     """Get specific registration details"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -707,7 +689,7 @@ def search_student_registrations(request):
     """Search student registrations - SECURE (no password)"""
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -765,7 +747,7 @@ def update_student_fee(request):
     
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -803,7 +785,7 @@ def generate_certificate(request):
         return Response({'error': 'registration_number parameter is required'}, status=400)
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -854,7 +836,7 @@ def get_fee_payment_history(request):
         return Response({'error': 'registration_number parameter is required'}, status=400)
     staff_profile = get_staff_profile(request.user)
     
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)
@@ -899,7 +881,7 @@ def add_payment_installment(request):
     if not registration_number:
         return Response({'error': 'registration_number parameter is required'}, status=400)
     staff_profile = get_staff_profile(request.user)
-    if not staff_profile:
+    if not staff_profile and not is_admin_user(request.user):
         return Response({
             'error': 'Access denied. Staff privileges required.'
         }, status=status.HTTP_403_FORBIDDEN)

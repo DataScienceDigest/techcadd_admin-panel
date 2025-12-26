@@ -284,8 +284,14 @@ class UpdateStudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student_api
         fields = (
-            'student_name', 'date_of_birth', 'qualification', 'work_college',
-            'mobile', 'email', 'address', 'centre', 'batch_time', 
+            'student_name', 'date_of_birth', 'qualification',
+            'student_type',  # Add this
+            # Conditional fields for different student types
+            'semester', 'college_name',  # For college students
+            'class_name', 'school_name',  # For school students
+            'job_role', 'company_name',  # For working professionals
+            'mobile', 'email', 'address', 'centre', 'batch_time',
+            'class_mode',  # Add this (it's required in your model)
             'course_fee_offer', 'course_interested', 'trade', 'enquiry_source',
             'assign_enquiry', 'enquiry_status', 'remark', 'next_follow_up_date'
         )
@@ -302,7 +308,6 @@ class UpdateStudentSerializer(serializers.ModelSerializer):
         if instance and Student_api.objects.filter(email=value).exclude(id=instance.id).exists():
             raise serializers.ValidationError("A student with this email already exists.")
         return value
-
         # ----------------registration section start ================
 # staff_app/serializers.py - Add these serializers
 

@@ -919,3 +919,269 @@ def add_payment_installment(request):
         return Response({
             'error': 'Registration not found'
         }, status=status.HTTP_404_NOT_FOUND)
+    
+# ========================BRANCH SECTIONS START HERE ================
+
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.db.models import Sum, Count, Q
+from django.utils import timezone
+from datetime import datetime, timedelta
+from staff_app.models import BranchProfile, Student_api, StudentRegistration
+from staff_app.serializers import (
+    BranchLoginSerializer, 
+    BranchProfileSerializer,
+    BranchDashboardSerializer
+)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def branch_login(request):
+    """Branch user login"""
+    serializer = BranchLoginSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.validated_data['user']
+        branch_profile = serializer.validated_data['branch_profile']
+        
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        
+        # Add branch info to token
+        refresh['branch'] = branch_profile.branch
+        refresh['user_type'] = 'branch'
+        
+        return Response({
+            'message': 'Login successful',
+            'branch': BranchProfileSerializer(branch_profile).data,
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            }
+        }, status=status.HTTP_200_OK)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def branch_logout(request):
+    """Branch user logout"""
+    try:
+        refresh_token = request.data.get('refresh_token')
+        if refresh_token:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+        
+        return Response({
+            'message': 'Logout successful'
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': 'Invalid token'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_branch_profile(request):
+    """Get current branch user profile"""
+    user = request.user
+    
+    try:
+        branch_profile = BranchProfile.objects.get(user=user, is_active=True)
+        serializer = BranchProfileSerializer(branch_profile)
+        return Response(serializer.data)
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch profile not found or inactive'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def branch_dashboard(request):
+    """Get branch dashboard statistics"""
+    user = request.user
+    
+    try:
+        branch_profile = BranchProfile.objects.get(user=user, is_active=True)
+        branch_name = branch_profile.branch
+        
+        # Date calculations
+        today = timezone.now().date()
+        week_start = today - timedelta(days=today.weekday())
+        month_start = today.replace(day=1)
+        
+        # ========== ENQUIRY STATISTICS ==========
+        enquiries = Student_api.objects.filter(centre=branch_name)
+        
+        total_enquiries = enquiries.count()
+        enquiries_today = enquiries.filter(enquiry_date=today).count()
+        enquiries_this_week = enquiries.filter(enquiry_date__gte=week_start).count()
+        enquiries_this_month = enquiries.filter(enquiry_date__gte=month_start).count()
+        
+        # Enquiry status breakdown
+        enquiry_status_breakdown = {}
+        for status_choice in Student_api.ENQUIRY_STATUS:
+            count = enquiries.filter(enquiry_status=status_choice[0]).count()
+            enquiry_status_breakdown[status_choice[1]] = count
+        
+        # ========== REGISTRATION STATISTICS ==========
+        registrations = StudentRegistration.objects.filter(branch=branch_name)
+        
+        total_registrations = registrations.count()
+        registrations_today = registrations.filter(joining_date=today).count()
+        registrations_this_week = registrations.filter(joining_date__gte=week_start).count()
+        registrations_this_month = registrations.filter(joining_date__gte=month_start).count()
+        
+        # Student type breakdown
+        student_type_breakdown = {}
+        for type_choice in StudentRegistration.STUDENT_TYPE_CHOICES:
+            count = registrations.filter(student_type=type_choice[0]).count()
+            student_type_breakdown[type_choice[1]] = count
+        
+        # Class mode breakdown
+        class_mode_breakdown = {}
+        for mode_choice in StudentRegistration.CLASS_MODE_CHOICES:
+            count = registrations.filter(class_mode=mode_choice[0]).count()
+            class_mode_breakdown[mode_choice[1]] = count
+        
+        # ========== FINANCIAL STATISTICS ==========
+        financial_data = registrations.aggregate(
+            total_fees=Sum('total_course_fee'),
+            collected_fees=Sum('paid_fee'),
+            pending_fees=Sum('fee_balance')
+        )
+        
+        total_course_fees = financial_data['total_fees'] or 0
+        total_fees_collected = financial_data['collected_fees'] or 0
+        total_fees_pending = financial_data['pending_fees'] or 0
+        
+        # ========== COURSE STATUS ==========
+        courses_ongoing = 0
+        courses_completed = 0
+        courses_not_started = 0
+        
+        for registration in registrations:
+            status = registration.get_course_status()
+            if status == 'ongoing':
+                courses_ongoing += 1
+            elif status == 'completed':
+                courses_completed += 1
+            elif status == 'not_started':
+                courses_not_started += 1
+        
+        # ========== CERTIFICATE STATISTICS ==========
+        certificates_issued = registrations.filter(certificate_issued=True).count()
+        students_eligible = sum(1 for reg in registrations if reg.is_eligible_for_certificate())
+        
+        # ========== PREPARE RESPONSE ==========
+        dashboard_data = {
+            'branch_name': branch_name,
+            'branch_display': branch_profile.get_branch_display(),
+            
+            # Enquiries
+            'total_enquiries': total_enquiries,
+            'enquiries_today': enquiries_today,
+            'enquiries_this_week': enquiries_this_week,
+            'enquiries_this_month': enquiries_this_month,
+            'enquiry_status_breakdown': enquiry_status_breakdown,
+            
+            # Registrations
+            'total_registrations': total_registrations,
+            'registrations_today': registrations_today,
+            'registrations_this_week': registrations_this_week,
+            'registrations_this_month': registrations_this_month,
+            'student_type_breakdown': student_type_breakdown,
+            'class_mode_breakdown': class_mode_breakdown,
+            
+            # Financial
+            'total_course_fees': total_course_fees,
+            'total_fees_collected': total_fees_collected,
+            'total_fees_pending': total_fees_pending,
+            
+            # Course Status
+            'courses_ongoing': courses_ongoing,
+            'courses_completed': courses_completed,
+            'courses_not_started': courses_not_started,
+            
+            # Certificates
+            'certificates_issued': certificates_issued,
+            'students_eligible_for_certificate': students_eligible,
+        }
+        
+        serializer = BranchDashboardSerializer(dashboard_data)
+        return Response(serializer.data)
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch profile not found or inactive'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def branch_enquiries(request):
+    """Get all enquiries for the branch"""
+    user = request.user
+    
+    try:
+        branch_profile = BranchProfile.objects.get(user=user, is_active=True)
+        branch_name = branch_profile.branch
+        
+        # Get enquiries for this branch
+        enquiries = Student_api.objects.filter(centre=branch_name).order_by('-created_at')
+        
+        # Apply filters if provided
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            enquiries = enquiries.filter(enquiry_status=status_filter)
+        
+        from staff_app.serializers import StudentListSerializer
+        serializer = StudentListSerializer(enquiries, many=True)
+        
+        return Response({
+            'branch': branch_profile.get_branch_display(),
+            'total_enquiries': enquiries.count(),
+            'enquiries': serializer.data
+        })
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch profile not found or inactive'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def branch_registrations(request):
+    """Get all registrations for the branch"""
+    user = request.user
+    
+    try:
+        branch_profile = BranchProfile.objects.get(user=user, is_active=True)
+        branch_name = branch_profile.branch
+        
+        # Get registrations for this branch
+        registrations = StudentRegistration.objects.filter(branch=branch_name).order_by('-created_at')
+        
+        from staff_app.serializers import StudentRegistrationSerializer
+        serializer = StudentRegistrationSerializer(registrations, many=True)
+        
+        return Response({
+            'branch': branch_profile.get_branch_display(),
+            'total_registrations': registrations.count(),
+            'registrations': serializer.data
+        })
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch profile not found or inactive'
+        }, status=status.HTTP_403_FORBIDDEN)

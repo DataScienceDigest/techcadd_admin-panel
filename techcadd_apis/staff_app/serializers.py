@@ -93,27 +93,6 @@ class UserSerializer(serializers.ModelSerializer):
 # staff_app/serializers.py - Add these to your existing serializers
 from .models import Student_api
 
-# class StudentSerializer(serializers.ModelSerializer):
-#     enquiry_taken_by_name = serializers.CharField(source='enquiry_taken_by.user.get_full_name', read_only=True)
-#     assign_enquiry_name = serializers.CharField(source='assign_enquiry.user.get_full_name', read_only=True)
-#     enquiry_status_display = serializers.CharField(source='get_enquiry_status_display', read_only=True)
-#     trade_display = serializers.CharField(source='get_trade_display', read_only=True)
-#     centre_display = serializers.CharField(source='get_centre_display', read_only=True)
-#     enquiry_source_display = serializers.CharField(source='get_enquiry_source_display', read_only=True)
-    
-#     class Meta:
-#         model = Student_api
-#         fields = (
-#             'id', 'student_name', 'date_of_birth', 'qualification', 'work_college',
-#             'mobile', 'email', 'address', 'enquiry_date', 'centre', 'centre_display',
-#             'enquiry_taken_by', 'enquiry_taken_by_name', 'batch_time', 
-#             'course_fee_offer', 'course_interested', 'trade', 'trade_display', 
-#             'enquiry_source', 'enquiry_source_display', 'assign_enquiry', 
-#             'assign_enquiry_name', 'enquiry_status', 'enquiry_status_display', 
-#             'remark', 'next_follow_up_date', 'username', 'password', 'created_at'
-#         )
-#         read_only_fields = ('username', 'password', 'created_at', 'updated_at', 'enquiry_taken_by')
-
 class CreateStudentSerializer(serializers.ModelSerializer):
     """Serializer for creating student enquiries"""
     
@@ -325,24 +304,6 @@ class CourseSerializer(serializers.ModelSerializer):
         fields = ('id', 'name', 'course_type', 'course_type_name', 'software_covered', 
                  'duration_months', 'duration_months_display', 'duration_hours', 'course_fee')
 
-# class StudentRegistrationSerializer(serializers.ModelSerializer):
-#     course_type_name = serializers.CharField(source='course_type.name', read_only=True)
-#     course_name = serializers.CharField(source='course.name', read_only=True)
-#     branch_display = serializers.CharField(source='get_branch_display', read_only=True)
-#     duration_months_display = serializers.CharField(source='get_duration_months_display', read_only=True)
-#     created_by_name = serializers.CharField(source='created_by.user.get_full_name', read_only=True)
-    
-#     class Meta:
-#         model = StudentRegistration
-#         fields = (
-#             'id','registration_number', 'branch', 'branch_display', 'joining_date', 'student_name', 
-#             'father_name', 'date_of_birth', 'email', 'qualification', 'work_college',
-#             'contact_address', 'phone_no', 'whatsapp_no', 'parents_no', 'course_type',
-#             'course_type_name', 'course', 'course_name', 'software_covered',
-#             'duration_months', 'duration_months_display', 'duration_hours', 'course_fee',
-#             'username', 'password', 'created_at', 'created_by', 'created_by_name'
-#         )
-#         read_only_fields = ('registration_number','username', 'password', 'created_at', 'created_by')
 class StudentRegistrationSerializer(serializers.ModelSerializer):
     course_type_name = serializers.CharField(source='course_type.name', read_only=True)
     course_name = serializers.CharField(source='course.name', read_only=True)
@@ -692,3 +653,155 @@ class AddPaymentSerializer(serializers.ModelSerializer):
         registration.save()
         
         return payment
+    
+# ========================================SERIALIZERS SECTION STARTS FROM HERE =================
+
+class BranchProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    branch_display = serializers.CharField(source='get_branch_display', read_only=True)
+
+    class Meta:
+        model = BranchProfile
+        fields = ('id', 'user_id', 'username', 'email', 'first_name', 'last_name', 
+                 'branch', 'branch_display', 'phone', 'address', 'is_active', 
+                 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at')
+
+
+class CreateBranchSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True)
+    email = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    first_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    last_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = BranchProfile
+        fields = ('username', 'password', 'email', 'first_name', 'last_name', 
+                 'branch', 'phone', 'address')
+    
+    def validate_branch(self, value):
+        """Check if branch already has credentials"""
+        if BranchProfile.objects.filter(branch=value).exists():
+            raise serializers.ValidationError(
+                f"Branch credentials already exist for {dict(BranchProfile.CENTRE_CHOICES).get(value)}"
+            )
+        return value
+
+    def create(self, validated_data):
+        # Extract user data
+        user_data = {
+            'username': validated_data.pop('username'),
+            'password': validated_data.pop('password'),
+            'email': validated_data.pop('email', ''),
+            'first_name': validated_data.pop('first_name', ''),
+            'last_name': validated_data.pop('last_name', ''),
+        }
+        
+        # Create user
+        user = User.objects.create_user(
+            username=user_data['username'],
+            password=user_data['password'],
+            email=user_data['email'],
+            first_name=user_data['first_name'],
+            last_name=user_data['last_name']
+        )
+        
+        # Create branch profile
+        branch_profile = BranchProfile.objects.create(user=user, **validated_data)
+        return branch_profile
+
+
+class BranchLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        username = data.get('username')
+        password = data.get('password')
+
+        if username and password:
+            user = authenticate(username=username, password=password)
+            
+            if user:
+                # Check if user has branch profile and is active
+                try:
+                    branch_profile = BranchProfile.objects.get(user=user, is_active=True)
+                    data['user'] = user
+                    data['branch_profile'] = branch_profile
+                except BranchProfile.DoesNotExist:
+                    raise serializers.ValidationError(
+                        "Branch account not found or inactive."
+                    )
+            else:
+                raise serializers.ValidationError(
+                    "Unable to log in with provided credentials."
+                )
+        else:
+            raise serializers.ValidationError(
+                "Must include 'username' and 'password'."
+            )
+
+        return data
+
+
+class UpdateBranchSerializer(serializers.ModelSerializer):
+    """Serializer for updating branch profile (without password)"""
+    
+    class Meta:
+        model = BranchProfile
+        fields = ('branch', 'phone', 'address', 'is_active')
+    
+    def validate_branch(self, value):
+        """Check if branch is already assigned to another profile"""
+        instance = self.instance
+        if instance and BranchProfile.objects.filter(branch=value).exclude(id=instance.id).exists():
+            raise serializers.ValidationError(
+                f"Branch credentials already exist for {dict(BranchProfile.CENTRE_CHOICES).get(value)}"
+            )
+        return value
+
+
+class BranchDashboardSerializer(serializers.Serializer):
+    """Serializer for branch dashboard statistics"""
+    branch_name = serializers.CharField()
+    branch_display = serializers.CharField()
+    
+    # Enquiry statistics
+    total_enquiries = serializers.IntegerField()
+    enquiries_today = serializers.IntegerField()
+    enquiries_this_week = serializers.IntegerField()
+    enquiries_this_month = serializers.IntegerField()
+    
+    # Enquiry status breakdown
+    enquiry_status_breakdown = serializers.DictField()
+    
+    # Registration statistics
+    total_registrations = serializers.IntegerField()
+    registrations_today = serializers.IntegerField()
+    registrations_this_week = serializers.IntegerField()
+    registrations_this_month = serializers.IntegerField()
+    
+    # Student type breakdown
+    student_type_breakdown = serializers.DictField()
+    
+    # Class mode breakdown
+    class_mode_breakdown = serializers.DictField()
+    
+    # Financial statistics
+    total_course_fees = serializers.DecimalField(max_digits=15, decimal_places=2)
+    total_fees_collected = serializers.DecimalField(max_digits=15, decimal_places=2)
+    total_fees_pending = serializers.DecimalField(max_digits=15, decimal_places=2)
+    
+    # Course status
+    courses_ongoing = serializers.IntegerField()
+    courses_completed = serializers.IntegerField()
+    courses_not_started = serializers.IntegerField()
+    
+    # Certificate statistics
+    certificates_issued = serializers.IntegerField()
+    students_eligible_for_certificate = serializers.IntegerField()

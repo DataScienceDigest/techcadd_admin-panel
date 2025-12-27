@@ -36,4 +36,14 @@ urlpatterns = [
     path('registrations/fee-history/', views.get_fee_payment_history, name='fee-history'),
     # Certificate Management
     path('registrations/generate-certificate/', views.generate_certificate, name='generate-certificate'),
+    # -------------------BRANCH SECTION 
+    path('branch/login/', views.branch_login, name='branch_login'),
+    path('branch/logout/', views.branch_logout, name='branch_logout'),
+    path('branch/profile/', views.get_branch_profile, name='branch_profile'),
+    
+    # Branch Dashboard & Data
+    path('branch/dashboard/', views.branch_dashboard, name='branch_dashboard'),
+    path('branch/enquiries/', views.branch_enquiries, name='branch_enquiries'),
+    path('branch/registrations/', views.branch_registrations, name='branch_registrations'),
+
 ]

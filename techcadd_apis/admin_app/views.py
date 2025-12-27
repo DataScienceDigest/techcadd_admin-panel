@@ -211,3 +211,195 @@ def get_staff_detail(request, staff_id):
         return Response({
             'error': 'Staff account not found'
         }, status=status.HTTP_404_NOT_FOUND)
+    
+# =====================BRANCH SECTION  =======================
+# admin_app/views.py - Add these views
+
+from staff_app.models import BranchProfile
+from staff_app.serializers import (
+    BranchProfileSerializer, 
+    CreateBranchSerializer,
+    UpdateBranchSerializer
+)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_branch_credentials(request):
+    """Admin creates new branch credentials"""
+    if not request.user.is_staff and not request.user.is_superuser:
+        return Response({
+            'error': 'Only admin can create branch credentials'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    serializer = CreateBranchSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        try:
+            branch_profile = serializer.save()
+            return Response({
+                'message': 'Branch credentials created successfully',
+                'branch': BranchProfileSerializer(branch_profile).data
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to create branch credentials: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_branches(request):
+    """Admin views all branch credentials"""
+    if not request.user.is_staff and not request.user.is_superuser:
+        return Response({
+            'error': 'Only admin can view branch list'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    branches = BranchProfile.objects.select_related('user').all()
+    serializer = BranchProfileSerializer(branches, many=True)
+    
+    return Response({
+        'branch_count': branches.count(),
+        'branches': serializer.data
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_branch_detail(request, branch_id):
+    """Admin gets specific branch details"""
+    if not request.user.is_staff and not request.user.is_superuser:
+        return Response({
+            'error': 'Only admin can view branch details'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        branch = BranchProfile.objects.get(id=branch_id)
+        serializer = BranchProfileSerializer(branch)
+        return Response(serializer.data)
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def update_branch(request, branch_id):
+    """Admin updates branch profile"""
+    if not request.user.is_staff and not request.user.is_superuser:
+        return Response({
+            'error': 'Only admin can update branch'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        branch_profile = BranchProfile.objects.get(id=branch_id)
+        serializer = UpdateBranchSerializer(branch_profile, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'message': 'Branch updated successfully',
+                'branch': BranchProfileSerializer(branch_profile).data
+            })
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def update_branch_status(request, branch_id):
+    """Admin activates/deactivates branch"""
+    if not request.user.is_staff and not request.user.is_superuser:
+        return Response({
+            'error': 'Only admin can update branch status'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        branch_profile = BranchProfile.objects.get(id=branch_id)
+        branch_profile.is_active = request.data.get('is_active', branch_profile.is_active)
+        branch_profile.save()
+        
+        return Response({
+            'message': 'Branch status updated successfully',
+            'branch': BranchProfileSerializer(branch_profile).data
+        })
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_branch(request, branch_id):
+    """Admin deletes branch credentials"""
+    if not request.user.is_staff and not request.user.is_superuser:
+        return Response({
+            'error': 'Only admin can delete branch credentials'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        branch_profile = BranchProfile.objects.get(id=branch_id)
+        user = branch_profile.user
+        
+        # Get branch info before deletion
+        branch_data = BranchProfileSerializer(branch_profile).data
+        
+        # Delete branch profile and user
+        branch_profile.delete()
+        user.delete()
+        
+        return Response({
+            'message': 'Branch credentials deleted successfully',
+            'deleted_branch': branch_data
+        }, status=status.HTTP_200_OK)
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def reset_branch_password(request, branch_id):
+    """Admin resets branch password"""
+    if not request.user.is_staff and not request.user.is_superuser:
+        return Response({
+            'error': 'Only admin can reset branch password'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        branch_profile = BranchProfile.objects.get(id=branch_id)
+        new_password = request.data.get('new_password')
+        
+        if not new_password:
+            return Response({
+                'error': 'New password is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update password
+        user = branch_profile.user
+        user.set_password(new_password)
+        user.save()
+        
+        return Response({
+            'message': 'Branch password reset successfully',
+            'branch': BranchProfileSerializer(branch_profile).data
+        })
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch not found'
+        }, status=status.HTTP_404_NOT_FOUND)

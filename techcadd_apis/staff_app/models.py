@@ -817,3 +817,34 @@ class PaymentTransaction(models.Model):
     
     def __str__(self):
         return f"Installment #{self.installment_number} - {self.amount} for {self.student_registration.registration_number}"
+    
+
+# ============================== BRANCH SECTION START HERE =============================
+
+class BranchProfile(models.Model):
+    CENTRE_CHOICES = [
+        ('jalandhar1', 'Jalandhar 1'),
+        ('jalandhar2', 'Jalandhar 2'),
+        ('maqsudan', 'Maqsudan'),
+        ('ludhiana', 'Ludhiana'),
+        ('hoshiarpur', 'Hoshiarpur'),
+        ('mohali', 'Mohali'),
+        ('phagwara', 'Phagwara'),
+    ]
+    
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='branch_profile')
+    branch = models.CharField(max_length=20, choices=CENTRE_CHOICES, unique=True)
+    phone = models.CharField(max_length=15, blank=True)
+    address = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'branch_profiles'
+        verbose_name = 'Branch Profile'
+        verbose_name_plural = 'Branch Profiles'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.get_branch_display()} - {self.user.username}"

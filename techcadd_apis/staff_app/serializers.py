@@ -805,3 +805,59 @@ class BranchDashboardSerializer(serializers.Serializer):
     # Certificate statistics
     certificates_issued = serializers.IntegerField()
     students_eligible_for_certificate = serializers.IntegerField()
+
+# -----------------------------------conversion serializer --------------------------
+
+class ConvertEnquiryToRegistrationSerializer(serializers.Serializer):
+    """
+    Serializer for converting enquiry to registration.
+    Validates that all required registration fields are present.
+    """
+    # Required fields that might be missing in enquiry
+    father_name = serializers.CharField(max_length=100)
+    work_college = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    contact_address = serializers.CharField(required=False, allow_blank=True)
+    whatsapp_no = serializers.CharField(max_length=15, required=False, allow_blank=True)
+    parents_no = serializers.CharField(max_length=15, required=False, allow_blank=True)
+    
+    # Course selection (must be actual course FK, not just text)
+    course_type = serializers.PrimaryKeyRelatedField(queryset=CourseType.objects.all())
+    course = serializers.PrimaryKeyRelatedField(queryset=Course.objects.all())
+    
+    # Financial details
+    total_course_fee = serializers.DecimalField(max_digits=10, decimal_places=2)
+    paid_fee = serializers.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # Registration details
+    branch = serializers.ChoiceField(choices=StudentRegistration.CENTRE_CHOICES)
+    joining_date = serializers.DateField()
+    
+    # Optional: Override duration from course
+    duration_months = serializers.ChoiceField(
+        choices=Course.DURATION_CHOICES, 
+        required=False
+    )
+    duration_hours = serializers.IntegerField(required=False)
+    software_covered = serializers.CharField(required=False, allow_blank=True)
+    
+    def validate(self, data):
+        """Validate course and duration"""
+        course = data.get('course')
+        
+        # Auto-fill duration from course if not provided
+        if not data.get('duration_months'):
+            data['duration_months'] = course.duration_months
+        
+        if not data.get('duration_hours'):
+            data['duration_hours'] = course.duration_hours
+        
+        if not data.get('software_covered'):
+            data['software_covered'] = course.software_covered
+        
+        # Validate paid_fee doesn't exceed total
+        if data.get('paid_fee', 0) > data.get('total_course_fee', 0):
+            raise serializers.ValidationError({
+                'paid_fee': 'Paid fee cannot exceed total course fee'
+            })
+        
+        return data

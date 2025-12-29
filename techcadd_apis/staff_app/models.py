@@ -206,6 +206,9 @@ class Student_api(models.Model):
         choices=ENQUIRY_STATUS, 
         default='in_process'
     )
+    converted_to_registration = models.BooleanField(default=False)
+    registration_id = models.IntegerField(null=True, blank=True, help_text="ID of created registration")
+
     remark = models.TextField(blank=True) 
     next_follow_up_date = models.DateField(null=True, blank=True)
     

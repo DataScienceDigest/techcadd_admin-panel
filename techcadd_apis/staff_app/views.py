@@ -10,7 +10,8 @@ from .models import StaffProfile
 from .serializers import *
 from .models import Student_api
 from .serializers import StudentSerializer, CreateStudentSerializer, StudentListSerializer, UpdateStudentSerializer
-
+from django.db import transaction
+from staff_app.serializers import ConvertEnquiryToRegistrationSerializer
 # Helper functions
 # def is_staff_user(user):
 #     """Check if user is an active staff member"""
@@ -391,10 +392,60 @@ def get_student_detail(request, student_id):
             'error': 'Student not found'
         }, status=status.HTTP_404_NOT_FOUND)
 
+# @api_view(['PUT'])
+# @permission_classes([IsAuthenticated])
+# def update_student(request, student_id):
+#     """Staff updates student information"""
+#     staff_profile = get_staff_profile(request.user)
+    
+#     if not staff_profile and not is_admin_user(request.user):
+#         return Response({
+#             'error': 'Access denied. Staff privileges required.'
+#         }, status=status.HTTP_403_FORBIDDEN)
+    
+#     try:
+#         student = Student_api.objects.get(id=student_id)
+        
+#         # Check if staff has permission to update this student
+#         if staff_profile.role not in ['manager'] and student.assign_enquiry != staff_profile:
+#             return Response({
+#                 'error': 'Access denied. You can only update your assigned students.'
+#             }, status=status.HTTP_403_FORBIDDEN)
+        
+#         serializer = UpdateStudentSerializer(student, data=request.data, partial=True)
+        
+#         if serializer.is_valid():
+#             serializer.save()
+            
+#             # Return updated student data
+#             updated_student = Student_api.objects.get(id=student_id)
+#             response_serializer = StudentSerializer(updated_student)
+            
+#             return Response({
+#                 'message': 'Student updated successfully',
+#                 'student': response_serializer.data
+#             })
+        
+#         return Response({
+#             'error': 'Validation failed',
+#             'details': serializer.errors
+#         }, status=status.HTTP_400_BAD_REQUEST)
+        
+#     except Student_api.DoesNotExist:
+#         return Response({
+#             'error': 'Student not found'
+#         }, status=status.HTTP_404_NOT_FOUND)
+# staff_app/views.py - Replace existing update_student view
+
+
+
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def update_student(request, student_id):
-    """Staff updates student information"""
+    """
+    Staff updates student information.
+    When status is changed to 'admission_done', automatically converts to registration.
+    """
     staff_profile = get_staff_profile(request.user)
     
     if not staff_profile and not is_admin_user(request.user):
@@ -406,11 +457,26 @@ def update_student(request, student_id):
         student = Student_api.objects.get(id=student_id)
         
         # Check if staff has permission to update this student
-        if staff_profile.role not in ['manager'] and student.assign_enquiry != staff_profile:
+        if staff_profile and staff_profile.role not in ['manager'] and student.assign_enquiry != staff_profile:
             return Response({
                 'error': 'Access denied. You can only update your assigned students.'
             }, status=status.HTTP_403_FORBIDDEN)
         
+        # Check if enquiry status is being changed to 'admission_done'
+        new_status = request.data.get('enquiry_status')
+        
+        if new_status == 'admission_done' and student.enquiry_status != 'admission_done':
+            # Check if already converted
+            if student.converted_to_registration:
+                return Response({
+                    'error': 'This enquiry has already been converted to registration',
+                    'registration_id': student.registration_id
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Attempt to convert to registration
+            return convert_enquiry_to_registration(request, student, staff_profile)
+        
+        # Normal update (not admission_done)
         serializer = UpdateStudentSerializer(student, data=request.data, partial=True)
         
         if serializer.is_valid():
@@ -435,6 +501,174 @@ def update_student(request, student_id):
             'error': 'Student not found'
         }, status=status.HTTP_404_NOT_FOUND)
 
+
+def convert_enquiry_to_registration(request, enquiry, staff_profile):
+    """
+    Helper function to convert enquiry to registration.
+    Validates all required fields and creates registration.
+    """
+    
+    # List of required fields for registration
+    required_fields = [
+        'father_name', 'course_type', 'course', 
+        'total_course_fee', 'branch', 'joining_date'
+    ]
+    
+    # Check if conversion data is provided
+    conversion_data = request.data.get('registration_data', {})
+    
+    if not conversion_data:
+        return Response({
+            'error': 'Cannot convert to registration',
+            'message': 'Additional information required for registration',
+            'required_fields': required_fields,
+            'missing_fields_help': {
+                'father_name': 'Father\'s name is required',
+                'course_type': 'Select course type (ID)',
+                'course': 'Select specific course (ID)',
+                'total_course_fee': 'Enter total course fee amount',
+                'branch': 'Select branch for registration',
+                'joining_date': 'Enter joining date (YYYY-MM-DD)',
+                'paid_fee': 'Enter initial payment amount (optional, default: 0)',
+                'work_college': 'Current workplace/college (optional)',
+                'contact_address': 'Full address (optional, will use enquiry address)',
+                'whatsapp_no': 'WhatsApp number (optional)',
+                'parents_no': 'Parent\'s contact number (optional)'
+            },
+            'example': {
+                'enquiry_status': 'admission_done',
+                'registration_data': {
+                    'father_name': 'Ramesh Kumar',
+                    'course_type': 1,
+                    'course': 5,
+                    'total_course_fee': 45000.00,
+                    'paid_fee': 15000.00,
+                    'branch': 'jalandhar1',
+                    'joining_date': '2024-12-30',
+                    'work_college': 'DAV College',
+                    'contact_address': 'Model Town, Jalandhar',
+                    'whatsapp_no': '9876543210',
+                    'parents_no': '9988776655'
+                }
+            }
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Validate conversion data
+    conversion_serializer = ConvertEnquiryToRegistrationSerializer(data=conversion_data)
+    
+    if not conversion_serializer.is_valid():
+        return Response({
+            'error': 'Invalid registration data',
+            'details': conversion_serializer.errors,
+            'help': 'Please provide all required fields to convert enquiry to registration'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Prepare registration data from enquiry + conversion data
+    validated_conversion_data = conversion_serializer.validated_data
+    
+    # ⭐ FIX: Extract IDs from the validated model instances
+    course_type_id = validated_conversion_data['course_type'].id
+    course_id = validated_conversion_data['course'].id
+    
+    registration_data = {
+        # From conversion data (required) - ⭐ Use IDs instead of objects
+        'father_name': validated_conversion_data['father_name'],
+        'course_type': course_type_id,  # ⭐ Changed
+        'course': course_id,  # ⭐ Changed
+        'total_course_fee': validated_conversion_data['total_course_fee'],
+        'paid_fee': validated_conversion_data.get('paid_fee', 0),
+        'branch': validated_conversion_data['branch'],
+        'joining_date': validated_conversion_data['joining_date'],
+        
+        # From enquiry (student personal details)
+        'student_name': enquiry.student_name,
+        'date_of_birth': enquiry.date_of_birth,
+        'qualification': enquiry.qualification,
+        'student_type': enquiry.student_type,
+        'semester': enquiry.semester,
+        'college_name': enquiry.college_name,
+        'class_name': enquiry.class_name,
+        'school_name': enquiry.school_name,
+        'job_role': enquiry.job_role,
+        'company_name': enquiry.company_name,
+        'email': enquiry.email,
+        'phone_no': enquiry.mobile,
+        'class_mode': enquiry.class_mode,
+        
+        # From conversion data or auto-fill
+        'work_college': validated_conversion_data.get('work_college') or enquiry.college_name or enquiry.school_name or enquiry.company_name or '',
+        'contact_address': validated_conversion_data.get('contact_address') or enquiry.address,
+        'whatsapp_no': validated_conversion_data.get('whatsapp_no', ''),
+        'parents_no': validated_conversion_data.get('parents_no', ''),
+        
+        # Course details
+        'duration_months': validated_conversion_data['duration_months'],
+        'duration_hours': validated_conversion_data['duration_hours'],
+        'software_covered': validated_conversion_data['software_covered'],
+    }
+    
+    # Use transaction to ensure both operations succeed or fail together
+    try:
+        with transaction.atomic():
+            # Create registration
+            registration_serializer = CreateStudentRegistrationSerializer(
+                data=registration_data,
+                context={'request': request}
+            )
+            
+            if registration_serializer.is_valid():
+                registration = registration_serializer.save()
+                
+                # Update enquiry to mark as converted
+                enquiry.enquiry_status = 'admission_done'
+                enquiry.converted_to_registration = True
+                enquiry.registration_id = registration.id
+                enquiry.save()
+                
+                # Prepare response
+                response_serializer = CreateStudentRegistrationResponseSerializer(registration)
+                
+                return Response({
+                    'message': 'Enquiry successfully converted to registration',
+                    'enquiry': {
+                        'id': enquiry.id,
+                        'student_name': enquiry.student_name,
+                        'status': 'admission_done',
+                        'converted': True
+                    },
+                    'registration': response_serializer.data,
+                    'registration_summary': {
+                        'registration_number': registration.registration_number,
+                        'student_name': registration.student_name,
+                        'branch': registration.get_branch_display(),
+                        'course': registration.course.name,
+                        'class_mode': registration.get_class_mode_display(),
+                        'student_type': registration.get_student_type_display(),
+                        'joining_date': str(registration.joining_date),
+                        'completion_date': str(registration.course_completion_date),
+                        'total_fee': float(registration.total_course_fee),
+                        'paid_fee': float(registration.paid_fee),
+                        'balance_fee': float(registration.fee_balance)
+                    },
+                    'login_credentials': {
+                        'username': registration.username,
+                        'password': registration.password,
+                        'note': 'Please save these credentials securely. Password will not be shown again.'
+                    }
+                }, status=status.HTTP_201_CREATED)
+            
+            else:
+                return Response({
+                    'error': 'Failed to create registration',
+                    'details': registration_serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+    
+    except Exception as e:
+        return Response({
+            'error': 'Failed to convert enquiry to registration',
+            'details': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def student_stats(request):

@@ -1359,32 +1359,144 @@ def branch_dashboard(request):
             'error': 'Branch profile not found or inactive'
         }, status=status.HTTP_403_FORBIDDEN)
 
+from rest_framework.pagination import PageNumberPagination
+
+
+
+class BranchPagination(PageNumberPagination):
+    """Custom pagination for branch views"""
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def branch_enquiries(request):
-    """Get all enquiries for the branch"""
+    """
+    Get all enquiries for the branch with comprehensive filtering
+    
+    Filter Parameters:
+    - enquiry_status: Filter by status (e.g., in_process, visited, positive)
+    - trade: Filter by trade (e.g., programming, graphic_designing)
+    - class_mode: Filter by class mode (e.g., online, offline, both)
+    - enquiry_source: Filter by source (e.g., social_media, friend_reference)
+    - student_type: Filter by type (e.g., college, school, working)
+    - converted: Filter by conversion status (true/false)
+    - search: Search by name, email, or mobile
+    - date_from: Filter enquiries from date (YYYY-MM-DD)
+    - date_to: Filter enquiries to date (YYYY-MM-DD)
+    - assigned_to: Filter by assigned staff ID
+    
+    Examples:
+    GET /branch/enquiries/?enquiry_status=in_process
+    GET /branch/enquiries/?trade=programming
+    GET /branch/enquiries/?enquiry_status=in_process&trade=programming
+    GET /branch/enquiries/?class_mode=online&student_type=college
+    GET /branch/enquiries/?search=priya
+    GET /branch/enquiries/?converted=false
+    GET /branch/enquiries/?date_from=2024-01-01&date_to=2024-12-31
+    """
     user = request.user
     
     try:
         branch_profile = BranchProfile.objects.get(user=user, is_active=True)
         branch_name = branch_profile.branch
         
-        # Get enquiries for this branch
-        enquiries = Student_api.objects.filter(centre=branch_name).order_by('-created_at')
+        # Start with enquiries for this branch
+        enquiries = Student_api.objects.filter(
+            centre=branch_name
+        ).select_related(
+            'enquiry_taken_by__user',
+            'assign_enquiry__user'
+        ).order_by('-created_at')
         
-        # Apply filters if provided
-        status_filter = request.query_params.get('status')
-        if status_filter:
-            enquiries = enquiries.filter(enquiry_status=status_filter)
+        # ========================================
+        # APPLY FILTERS
+        # ========================================
         
+        # Filter by enquiry_status
+        enquiry_status = request.GET.get('enquiry_status')
+        if enquiry_status:
+            enquiries = enquiries.filter(enquiry_status=enquiry_status)
+        
+        # Filter by trade
+        trade = request.GET.get('trade')
+        if trade:
+            enquiries = enquiries.filter(trade=trade)
+        
+        # Filter by class_mode
+        class_mode = request.GET.get('class_mode')
+        if class_mode:
+            enquiries = enquiries.filter(class_mode=class_mode)
+        
+        # Filter by enquiry_source
+        enquiry_source = request.GET.get('enquiry_source')
+        if enquiry_source:
+            enquiries = enquiries.filter(enquiry_source=enquiry_source)
+        
+        # Filter by student_type
+        student_type = request.GET.get('student_type')
+        if student_type:
+            enquiries = enquiries.filter(student_type=student_type)
+        
+        # Filter by conversion status
+        converted = request.GET.get('converted')
+        if converted is not None:
+            is_converted = converted.lower() == 'true'
+            enquiries = enquiries.filter(converted_to_registration=is_converted)
+        
+        # Filter by assigned staff
+        assigned_to = request.GET.get('assigned_to')
+        if assigned_to:
+            enquiries = enquiries.filter(assign_enquiry_id=assigned_to)
+        
+        # Filter by date range
+        date_from = request.GET.get('date_from')
+        if date_from:
+            enquiries = enquiries.filter(enquiry_date__gte=date_from)
+        
+        date_to = request.GET.get('date_to')
+        if date_to:
+            enquiries = enquiries.filter(enquiry_date__lte=date_to)
+        
+        # Search functionality (name, email, mobile)
+        search = request.GET.get('search')
+        if search:
+            enquiries = enquiries.filter(
+                Q(student_name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(mobile__icontains=search)
+            )
+        
+        # Get total count before pagination
+        total_count = enquiries.count()
+        
+        # Apply pagination
+        paginator = BranchPagination()
+        paginated_enquiries = paginator.paginate_queryset(enquiries, request)
+        
+        # Serialize
         from staff_app.serializers import StudentListSerializer
-        serializer = StudentListSerializer(enquiries, many=True)
+        serializer = StudentListSerializer(paginated_enquiries, many=True)
         
-        return Response({
+        # Return paginated response
+        return paginator.get_paginated_response({
             'branch': branch_profile.get_branch_display(),
-            'total_enquiries': enquiries.count(),
-            'enquiries': serializer.data
+            'total_enquiries': total_count,
+            'enquiries': serializer.data,
+            'filters_applied': {
+                'enquiry_status': enquiry_status,
+                'trade': trade,
+                'class_mode': class_mode,
+                'enquiry_source': enquiry_source,
+                'student_type': student_type,
+                'converted': converted,
+                'search': search,
+                'date_from': date_from,
+                'date_to': date_to,
+                'assigned_to': assigned_to
+            }
         })
         
     except BranchProfile.DoesNotExist:
@@ -1393,27 +1505,265 @@ def branch_enquiries(request):
         }, status=status.HTTP_403_FORBIDDEN)
 
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def branch_registrations(request):
-    """Get all registrations for the branch"""
+    """
+    Get all registrations for the branch with comprehensive filtering
+    
+    Filter Parameters:
+    - student_type: Filter by type (e.g., college, school, working)
+    - class_mode: Filter by class mode (e.g., online, offline, both)
+    - course_type: Filter by course type ID
+    - course: Filter by course ID
+    - certificate_issued: Filter by certificate status (true/false)
+    - payment_status: Filter by payment (paid/pending/partial)
+    - course_status: Filter by course status (not_started/ongoing/completed)
+    - search: Search by name, email, phone, or registration number
+    - date_from: Filter registrations from date (YYYY-MM-DD)
+    - date_to: Filter registrations to date (YYYY-MM-DD)
+    - created_by: Filter by staff ID who created the registration
+    
+    Examples:
+    GET /branch/registrations/?student_type=college
+    GET /branch/registrations/?class_mode=online
+    GET /branch/registrations/?certificate_issued=false
+    GET /branch/registrations/?payment_status=pending
+    GET /branch/registrations/?course_status=ongoing
+    GET /branch/registrations/?search=priya
+    GET /branch/registrations/?student_type=college&class_mode=online
+    GET /branch/registrations/?date_from=2024-01-01&date_to=2024-12-31
+    """
     user = request.user
     
     try:
         branch_profile = BranchProfile.objects.get(user=user, is_active=True)
         branch_name = branch_profile.branch
         
-        # Get registrations for this branch
-        registrations = StudentRegistration.objects.filter(branch=branch_name).order_by('-created_at')
+        # Start with registrations for this branch
+        registrations = StudentRegistration.objects.filter(
+            branch=branch_name
+        ).select_related(
+            'course_type',
+            'course',
+            'created_by__user'
+        ).order_by('-created_at')
         
+        # ========================================
+        # APPLY FILTERS
+        # ========================================
+        
+        # Filter by student_type
+        student_type = request.GET.get('student_type')
+        if student_type:
+            registrations = registrations.filter(student_type=student_type)
+        
+        # Filter by class_mode
+        class_mode = request.GET.get('class_mode')
+        if class_mode:
+            registrations = registrations.filter(class_mode=class_mode)
+        
+        # Filter by course_type
+        course_type = request.GET.get('course_type')
+        if course_type:
+            registrations = registrations.filter(course_type_id=course_type)
+        
+        # Filter by course
+        course = request.GET.get('course')
+        if course:
+            registrations = registrations.filter(course_id=course)
+        
+        # Filter by certificate_issued
+        certificate_issued = request.GET.get('certificate_issued')
+        if certificate_issued is not None:
+            is_issued = certificate_issued.lower() == 'true'
+            registrations = registrations.filter(certificate_issued=is_issued)
+        
+        # Filter by payment_status
+        payment_status = request.GET.get('payment_status')
+        if payment_status:
+            if payment_status == 'paid':
+                registrations = registrations.filter(fee_balance=0)
+            elif payment_status == 'pending':
+                registrations = registrations.filter(fee_balance=models.F('total_course_fee'))
+            elif payment_status == 'partial':
+                registrations = registrations.filter(
+                    fee_balance__gt=0,
+                    fee_balance__lt=models.F('total_course_fee')
+                )
+        
+        # Filter by course_status (not_started, ongoing, completed)
+        course_status = request.GET.get('course_status')
+        if course_status:
+            from django.utils import timezone
+            today = timezone.now().date()
+            
+            if course_status == 'not_started':
+                registrations = registrations.filter(joining_date__gt=today)
+            elif course_status == 'ongoing':
+                registrations = registrations.filter(
+                    joining_date__lte=today,
+                    course_completion_date__gte=today
+                )
+            elif course_status == 'completed':
+                registrations = registrations.filter(course_completion_date__lt=today)
+        
+        # Filter by created_by staff
+        created_by = request.GET.get('created_by')
+        if created_by:
+            registrations = registrations.filter(created_by_id=created_by)
+        
+        # Filter by date range (joining date)
+        date_from = request.GET.get('date_from')
+        if date_from:
+            registrations = registrations.filter(joining_date__gte=date_from)
+        
+        date_to = request.GET.get('date_to')
+        if date_to:
+            registrations = registrations.filter(joining_date__lte=date_to)
+        
+        # Search functionality (name, email, phone, registration number)
+        search = request.GET.get('search')
+        if search:
+            registrations = registrations.filter(
+                Q(student_name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(phone_no__icontains=search) |
+                Q(registration_number__icontains=search)
+            )
+        
+        # Get total count before pagination
+        total_count = registrations.count()
+        
+        # Apply pagination
+        paginator = BranchPagination()
+        paginated_registrations = paginator.paginate_queryset(registrations, request)
+        
+        # Serialize
         from staff_app.serializers import StudentRegistrationSerializer
-        serializer = StudentRegistrationSerializer(registrations, many=True)
+        serializer = StudentRegistrationSerializer(paginated_registrations, many=True)
+        
+        # Return paginated response
+        return paginator.get_paginated_response({
+            'branch': branch_profile.get_branch_display(),
+            'total_registrations': total_count,
+            'registrations': serializer.data,
+            'filters_applied': {
+                'student_type': student_type,
+                'class_mode': class_mode,
+                'course_type': course_type,
+                'course': course,
+                'certificate_issued': certificate_issued,
+                'payment_status': payment_status,
+                'course_status': course_status,
+                'search': search,
+                'date_from': date_from,
+                'date_to': date_to,
+                'created_by': created_by
+            }
+        })
+        
+    except BranchProfile.DoesNotExist:
+        return Response({
+            'error': 'Branch profile not found or inactive'
+        }, status=status.HTTP_403_FORBIDDEN)
+        
+
+# ============================================
+# OPTIONAL: Get Filter Options for Branch
+# ============================================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def branch_filter_options(request):
+    """
+    Returns all available filter options for the branch
+    Useful for building dynamic filter dropdowns in frontend
+    """
+    user = request.user
+    
+    try:
+        branch_profile = BranchProfile.objects.get(user=user, is_active=True)
+        
+        # Get courses available for this branch
+        from staff_app.models import CourseType, Course
+        course_types = CourseType.objects.all()
+        courses = Course.objects.all()
+        
+        # Get staff members for this branch (for assigned_to filter)
+        from staff_app.models import StaffProfile
+        branch_staff = StaffProfile.objects.filter(
+            branch=branch_profile.branch,
+            is_active=True
+        ).select_related('user')
         
         return Response({
-            'branch': branch_profile.get_branch_display(),
-            'total_registrations': registrations.count(),
-            'registrations': serializer.data
-        })
+            'enquiry_filters': {
+                'enquiry_statuses': [
+                    {'value': choice[0], 'label': choice[1]} 
+                    for choice in Student_api.ENQUIRY_STATUS
+                ],
+                'trades': [
+                    {'value': choice[0], 'label': choice[1]} 
+                    for choice in Student_api.TRADE_CHOICES
+                ],
+                'enquiry_sources': [
+                    {'value': choice[0], 'label': choice[1]} 
+                    for choice in Student_api.ENQUIRY_SOURCE_CHOICES
+                ],
+                'student_types': [
+                    {'value': choice[0], 'label': choice[1]} 
+                    for choice in Student_api.STUDENT_TYPE_CHOICES
+                ],
+                'class_modes': [
+                    {'value': choice[0], 'label': choice[1]} 
+                    for choice in Student_api.CLASS_MODE_CHOICES
+                ],
+                'staff': [
+                    {
+                        'value': staff.id,
+                        'label': staff.user.get_full_name() or staff.user.username
+                    }
+                    for staff in branch_staff
+                ]
+            },
+            'registration_filters': {
+                'student_types': [
+                    {'value': choice[0], 'label': choice[1]} 
+                    for choice in StudentRegistration.STUDENT_TYPE_CHOICES
+                ],
+                'class_modes': [
+                    {'value': choice[0], 'label': choice[1]} 
+                    for choice in StudentRegistration.CLASS_MODE_CHOICES
+                ],
+                'course_types': [
+                    {'value': ct.id, 'label': ct.name}
+                    for ct in course_types
+                ],
+                'courses': [
+                    {'value': c.id, 'label': c.name}
+                    for c in courses
+                ],
+                'payment_statuses': [
+                    {'value': 'paid', 'label': 'Fully Paid'},
+                    {'value': 'pending', 'label': 'Payment Pending'},
+                    {'value': 'partial', 'label': 'Partially Paid'}
+                ],
+                'course_statuses': [
+                    {'value': 'not_started', 'label': 'Not Started'},
+                    {'value': 'ongoing', 'label': 'Ongoing'},
+                    {'value': 'completed', 'label': 'Completed'}
+                ],
+                'staff': [
+                    {
+                        'value': staff.id,
+                        'label': staff.user.get_full_name() or staff.user.username
+                    }
+                    for staff in branch_staff
+                ]
+            }
+        }, status=status.HTTP_200_OK)
         
     except BranchProfile.DoesNotExist:
         return Response({

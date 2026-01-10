@@ -1596,7 +1596,6 @@ def branch_registrations(request):
         # Filter by course_status (not_started, ongoing, completed)
         course_status = request.GET.get('course_status')
         if course_status:
-            from django.utils import timezone
             today = timezone.now().date()
             
             if course_status == 'not_started':

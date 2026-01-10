@@ -6,6 +6,9 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.db import models
+import secrets
+import string
 import datetime
 class StaffProfile(models.Model):
     STAFF_ROLES = [
@@ -39,9 +42,7 @@ class StaffProfile(models.Model):
 #         StaffProfile.objects.get_or_create(user=instance)
 
 # staff_app/models.py
-from django.db import models
-import secrets
-import string
+
 
 class Student_api(models.Model):
     CENTRE_CHOICES = [
@@ -715,7 +716,7 @@ class StudentRegistration(models.Model):
     
     def is_eligible_for_certificate(self):
         """Check if student is eligible for certificate"""
-        from django.utils import timezone
+        
         today = timezone.now().date()
         
         # Check if fees are fully paid

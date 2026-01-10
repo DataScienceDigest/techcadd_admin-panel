@@ -253,7 +253,7 @@ class StudentListSerializer(serializers.ModelSerializer):
             'id', 'student_name', 'mobile', 'email',
             'student_type', 'student_type_display',
             'class_mode', 'class_mode_display',
-            'course_interested', 'trade',
+            'course_interested', 'trade', 'enquiry_source',
             'enquiry_status', 'enquiry_status_display',
             'enquiry_taken_by_name', 'next_follow_up_date',
             'created_at'

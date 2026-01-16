@@ -1768,3 +1768,137 @@ def branch_filter_options(request):
         return Response({
             'error': 'Branch profile not found or inactive'
         }, status=status.HTTP_403_FORBIDDEN)
+        
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])  # You can change this to IsAdminUser if only admins should access
+def list_all_branches(request):
+    """
+    Get list of all branches with their credentials (username only, no passwords)
+    
+    Query Parameters:
+    - is_active: Filter by branch active status (true/false)
+    - branch: Filter by specific branch name (e.g., jalandhar1)
+    - search: Search by username, email, branch name
+    - ordering: Order results (e.g., -created_at, username, branch)
+    
+    Examples:
+    GET /branch/list/
+    GET /branch/list/?is_active=true
+    GET /branch/list/?branch=jalandhar1
+    GET /branch/list/?search=jalandhar
+    GET /branch/list/?ordering=-created_at
+    """
+    
+    # Start with all branch profiles
+    branches = BranchProfile.objects.select_related('user').all()
+    
+    # ========================================
+    # APPLY FILTERS
+    # ========================================
+    
+    # Filter by active status
+    is_active = request.GET.get('is_active')
+    if is_active is not None:
+        active_status = is_active.lower() == 'true'
+        branches = branches.filter(is_active=active_status)
+    
+    # Filter by specific branch
+    branch = request.GET.get('branch')
+    if branch:
+        branches = branches.filter(branch=branch)
+    
+    # Search functionality
+    search = request.GET.get('search')
+    if search:
+        branches = branches.filter(
+            Q(user__username__icontains=search) |
+            Q(user__email__icontains=search) |
+            Q(user__first_name__icontains=search) |
+            Q(user__last_name__icontains=search) |
+            Q(branch__icontains=search) |
+            Q(phone__icontains=search)
+        )
+    
+    # Ordering
+    ordering = request.GET.get('ordering', '-created_at')
+    valid_orderings = ['created_at', '-created_at', 'username', '-username', 
+                      'branch', '-branch', 'user__username', '-user__username']
+    if ordering in valid_orderings:
+        if ordering in ['username', '-username']:
+            ordering = ordering.replace('username', 'user__username')
+        branches = branches.order_by(ordering)
+    
+    # Get total count
+    total_count = branches.count()
+    
+    # Serialize
+    serializer = BranchListSerializer(branches, many=True)
+    
+    return Response({
+        'total_branches': total_count,
+        'branches': serializer.data,
+        'filters_applied': {
+            'is_active': is_active,
+            'branch': branch,
+            'search': search,
+            'ordering': ordering
+        }
+    }, status=status.HTTP_200_OK)
+
+
+# OPTIONAL: Get branch credentials summary (for admin dashboard)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def branch_credentials_summary(request):
+    """
+    Get summary of all branches and their credential status
+    Useful for admin dashboard
+    """
+    
+    all_branches = BranchProfile.CENTRE_CHOICES
+    created_branches = BranchProfile.objects.select_related('user').all()
+    
+    branch_summary = []
+    
+    for branch_code, branch_name in all_branches:
+        try:
+            branch_profile = created_branches.get(branch=branch_code)
+            branch_summary.append({
+                'branch_code': branch_code,
+                'branch_name': branch_name,
+                'has_credentials': True,
+                'username': branch_profile.user.username,
+                'email': branch_profile.user.email,
+                'is_active': branch_profile.is_active,
+                'is_user_active': branch_profile.user.is_active,
+                'created_at': branch_profile.created_at,
+                'last_login': branch_profile.user.last_login
+            })
+        except BranchProfile.DoesNotExist:
+            branch_summary.append({
+                'branch_code': branch_code,
+                'branch_name': branch_name,
+                'has_credentials': False,
+                'username': None,
+                'email': None,
+                'is_active': False,
+                'is_user_active': False,
+                'created_at': None,
+                'last_login': None
+            })
+    
+    total_branches = len(all_branches)
+    branches_with_credentials = sum(1 for b in branch_summary if b['has_credentials'])
+    branches_without_credentials = total_branches - branches_with_credentials
+    active_branches = sum(1 for b in branch_summary if b['has_credentials'] and b['is_active'])
+    
+    return Response({
+        'summary': {
+            'total_branches': total_branches,
+            'branches_with_credentials': branches_with_credentials,
+            'branches_without_credentials': branches_without_credentials,
+            'active_branches': active_branches,
+            'inactive_branches': branches_with_credentials - active_branches
+        },
+        'branches': branch_summary
+    }, status=status.HTTP_200_OK)

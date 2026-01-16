@@ -45,5 +45,8 @@ urlpatterns = [
     path('branch/dashboard/', views.branch_dashboard, name='branch_dashboard'),
     path('branch/enquiries/', views.branch_enquiries, name='branch_enquiries'),
     path('branch/registrations/', views.branch_registrations, name='branch_registrations'),
+    # Add these new paths to your existing branch URLs
+    path('branch/list/', views.list_all_branches, name='list_all_branches'),
+    path('branch/credentials-summary/', views.branch_credentials_summary, name='branch_credentials_summary'),
 
 ]

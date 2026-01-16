@@ -805,7 +805,45 @@ class BranchDashboardSerializer(serializers.Serializer):
     # Certificate statistics
     certificates_issued = serializers.IntegerField()
     students_eligible_for_certificate = serializers.IntegerField()
+    
+class BranchListSerializer(serializers.ModelSerializer):
+    """Serializer for listing all branches with credentials info"""
+    username = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    full_name = serializers.SerializerMethodField()
+    branch_display = serializers.CharField(source='get_branch_display', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    is_user_active = serializers.BooleanField(source='user.is_active', read_only=True)
+    last_login = serializers.DateTimeField(source='user.last_login', read_only=True)
 
+    class Meta:
+        model = BranchProfile
+        fields = (
+            'id', 
+            'user_id',
+            'username', 
+            'email', 
+            'first_name', 
+            'last_name',
+            'full_name',
+            'branch', 
+            'branch_display', 
+            'phone', 
+            'address', 
+            'is_active',
+            'is_user_active',
+            'last_login',
+            'created_at', 
+            'updated_at'
+        )
+        read_only_fields = fields
+    
+    def get_full_name(self, obj):
+        """Get user's full name or username"""
+        full_name = obj.user.get_full_name()
+        return full_name if full_name else obj.user.username
 # -----------------------------------conversion serializer --------------------------
 
 class ConvertEnquiryToRegistrationSerializer(serializers.Serializer):
